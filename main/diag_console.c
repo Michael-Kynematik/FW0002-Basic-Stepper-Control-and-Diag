@@ -17,6 +17,7 @@
 #include "argtable3/argtable3.h"
 #include "events.h"
 #include "snapshot.h"
+#include "remote_actions.h"
 
 typedef struct
 {
@@ -32,6 +33,7 @@ static bool s_cmd_reboot_registered = false;
 static bool s_cmd_snapshot_registered = false;
 static bool s_cmd_selftest_registered = false;
 static bool s_cmd_events_registered = false;
+static bool s_cmd_remote_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -39,6 +41,7 @@ static int cmd_reboot(int argc, char **argv);
 static int cmd_snapshot(int argc, char **argv);
 static int cmd_selftest(int argc, char **argv);
 static int cmd_events(int argc, char **argv);
+static int cmd_remote(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -47,6 +50,7 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "Event log (tail [n] | clear)", .handler = &cmd_events, .registered = &s_cmd_events_registered},
+    {.name = "remote", .usage = "Remote actions (list|exec|unlock|lock|unlock_status)", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
 };
 
 static void print_json_string(const char *value)
@@ -247,6 +251,168 @@ static int cmd_events(int argc, char **argv)
             return 0;
         }
         printf("OK\n");
+        return 0;
+    }
+    printf("ERR invalid_args\n");
+    return 0;
+}
+
+static const char *remote_result_to_err(remote_action_result_t result)
+{
+    switch (result)
+    {
+    case REMOTE_ACTION_ERR_NOT_ALLOWED:
+        return "not_allowed";
+    case REMOTE_ACTION_ERR_INVALID_ARGS:
+        return "invalid_args";
+    case REMOTE_ACTION_ERR_UNLOCK_REQUIRED:
+        return "unlock_required";
+    case REMOTE_ACTION_ERR_UNSAFE:
+        return "unsafe";
+    case REMOTE_ACTION_ERR_INTERNAL:
+    default:
+        return "internal";
+    }
+}
+
+static int cmd_remote(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printf("ERR invalid_args\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "list") == 0)
+    {
+        const char *names[8];
+        size_t count = remote_actions_get_allowed(names, sizeof(names) / sizeof(names[0]));
+        size_t to_print = count;
+        if (to_print > (sizeof(names) / sizeof(names[0])))
+        {
+            to_print = sizeof(names) / sizeof(names[0]);
+        }
+        printf("{\"actions\":[");
+        for (size_t i = 0; i < to_print; ++i)
+        {
+            if (i > 0)
+            {
+                printf(",");
+            }
+            print_json_string(names[i]);
+        }
+        printf("]}\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "unlock") == 0)
+    {
+        uint32_t seconds = 60;
+        if (argc == 3)
+        {
+            char *end = NULL;
+            long val = strtol(argv[2], &end, 10);
+            if (end == argv[2] || *end != '\0')
+            {
+                printf("ERR invalid_args\n");
+                return 0;
+            }
+            seconds = (uint32_t)val;
+        }
+        else if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        if (seconds < 10)
+        {
+            seconds = 10;
+        }
+        if (seconds > 600)
+        {
+            seconds = 600;
+        }
+        remote_actions_unlock(seconds);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "lock") == 0)
+    {
+        if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        remote_actions_lock();
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "unlock_status") == 0)
+    {
+        if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        bool unlocked = false;
+        uint32_t expires_in_s = 0;
+        remote_actions_get_unlock_status(&unlocked, &expires_in_s);
+        printf("{\"unlocked\":%s,\"expires_in_s\":%u}\n",
+               unlocked ? "true" : "false",
+               (unsigned)expires_in_s);
+        return 0;
+    }
+    if (strcmp(argv[1], "exec") == 0)
+    {
+        if (argc < 3)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        const char *args = NULL;
+        char args_buf[96];
+        if (argc > 3)
+        {
+            size_t used = 0;
+            for (int i = 3; i < argc; ++i)
+            {
+                size_t part_len = strlen(argv[i]);
+                if (used + part_len + 1 >= sizeof(args_buf))
+                {
+                    printf("ERR invalid_args\n");
+                    return 0;
+                }
+                if (used > 0)
+                {
+                    args_buf[used++] = ' ';
+                }
+                memcpy(&args_buf[used], argv[i], part_len);
+                used += part_len;
+                args_buf[used] = '\0';
+            }
+            args = args_buf;
+        }
+        char out_json[160];
+        remote_action_result_t result =
+            remote_actions_execute(argv[2], args, out_json, sizeof(out_json));
+        if (result != REMOTE_ACTION_OK)
+        {
+            if (result == REMOTE_ACTION_ERR_UNLOCK_REQUIRED)
+            {
+                printf("ERR {\"err\":\"unlock_required\"}\n");
+            }
+            else
+            {
+                printf("ERR %s\n", remote_result_to_err(result));
+            }
+            return 0;
+        }
+        if (out_json[0] != '\0')
+        {
+            printf("%s\n", out_json);
+        }
+        else
+        {
+            printf("OK\n");
+        }
         return 0;
     }
     printf("ERR invalid_args\n");
