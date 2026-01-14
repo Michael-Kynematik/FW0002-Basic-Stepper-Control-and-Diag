@@ -1,0 +1,24 @@
+CODEX STANDING RULES (FW0002)
+
+DEFAULT MODE
+- Make changes directly in my workspace (edit files yourself).
+- Keep changes small and reviewable.
+
+AFTER EVERY CHANGE, YOU MUST OUTPUT
+- Files changed (exact paths)
+- What changed (1–3 bullets)
+- Minimal test plan:
+  1) idf.py build
+  2) One hardware/CLI check
+- STOP and wait for my results before continuing.
+
+INVARIANTS
+- main must always be flashable and testable on hardware without special steps.
+- USB CDC console remains stable and usable on the known-good COM port.
+- Minimum diagnostic commands must always work on main: help, uptime, reboot, snapshot.
+- All CLI commands must produce deterministic output: OK/ERR or a single-line JSON record.
+- snapshot must always be exactly one JSON line.
+
+RESTRICTIONS
+- Do not edit README or /docs unless I explicitly ask.
+- If touching console/boot/CDC/UART transport, propose the exact diff + test plan first and wait for approval.
