@@ -3,5 +3,6 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(FW0002-Basic-Stepper-Control-and-Diag)
+project(FW0002_basic_stepper_control_and_diag)
+
 
