@@ -3,5 +3,5 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(FW0001_two_way_serial_comms)
+project(FW0002-Basic-Stepper-Control-and-Diag)
 
