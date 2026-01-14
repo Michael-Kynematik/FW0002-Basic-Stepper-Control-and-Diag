@@ -5,7 +5,9 @@
 
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_mac.h"
 #include "fw_version.h"
+#include "board.h"
 
 #define SNAPSHOT_MAX_FIELDS 16
 
@@ -186,6 +188,29 @@ static bool snapshot_field_schema_version(char *buf, size_t len, size_t *used)
     return snapshot_append_u32(buf, len, used, (uint32_t)SNAPSHOT_SCHEMA_VERSION);
 }
 
+static bool snapshot_field_device_id(char *buf, size_t len, size_t *used)
+{
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK)
+    {
+        return false;
+    }
+    char id[13];
+    snprintf(id, sizeof(id), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return snapshot_append_string(buf, len, used, id);
+}
+
+static bool snapshot_field_hw_rev(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_u32(buf, len, used, (uint32_t)HW_REV);
+}
+
+static bool snapshot_field_board_safe(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_bool(buf, len, used, board_is_safe());
+}
+
 static bool snapshot_register_defaults(void)
 {
     if (s_defaults_registered)
@@ -198,7 +223,10 @@ static bool snapshot_register_defaults(void)
         !snapshot_register_field("reset_reason", snapshot_field_reset_reason) ||
         !snapshot_register_field("fw_version", snapshot_field_fw_version) ||
         !snapshot_register_field("fw_build", snapshot_field_fw_build) ||
-        !snapshot_register_field("schema_version", snapshot_field_schema_version))
+        !snapshot_register_field("schema_version", snapshot_field_schema_version) ||
+        !snapshot_register_field("device_id", snapshot_field_device_id) ||
+        !snapshot_register_field("hw_rev", snapshot_field_hw_rev) ||
+        !snapshot_register_field("board_safe", snapshot_field_board_safe))
     {
         return false;
     }

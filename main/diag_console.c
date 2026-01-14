@@ -19,6 +19,7 @@
 #include "snapshot.h"
 #include "remote_actions.h"
 #include "fw_version.h"
+#include "board.h"
 
 #include "esp_mac.h"
 
@@ -39,6 +40,8 @@ static bool s_cmd_events_registered = false;
 static bool s_cmd_remote_registered = false;
 static bool s_cmd_version_registered = false;
 static bool s_cmd_id_registered = false;
+static bool s_cmd_pins_registered = false;
+static bool s_cmd_safe_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -49,6 +52,8 @@ static int cmd_events(int argc, char **argv);
 static int cmd_remote(int argc, char **argv);
 static int cmd_version(int argc, char **argv);
 static int cmd_id(int argc, char **argv);
+static int cmd_pins(int argc, char **argv);
+static int cmd_safe(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -57,6 +62,8 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
     {.name = "version", .usage = "Print firmware version/build", .handler = &cmd_version, .registered = &s_cmd_version_registered},
     {.name = "id", .usage = "Print device ID", .handler = &cmd_id, .registered = &s_cmd_id_registered},
+    {.name = "pins", .usage = "Print pin map", .handler = &cmd_pins, .registered = &s_cmd_pins_registered},
+    {.name = "safe", .usage = "Apply board safe state", .handler = &cmd_safe, .registered = &s_cmd_safe_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "Event log (tail [n] | clear)", .handler = &cmd_events, .registered = &s_cmd_events_registered},
     {.name = "remote", .usage = "Remote actions (list|exec|unlock|lock|unlock_status)", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
@@ -193,6 +200,30 @@ static int cmd_id(int argc, char **argv)
     char id[13];
     format_mac_hex(mac, id, sizeof(id));
     printf("{\"device_id\":\"%s\"}\n", id);
+    return 0;
+}
+
+static int cmd_pins(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    printf("{\"neopixel_onboard\":%d,\"ir_emitter\":%d,\"beam_input\":%d,"
+           "\"hx711_sck\":%d,\"hx711_dout\":%d,"
+           "\"tmc_step\":%d,\"tmc_dir\":%d,\"tmc_en\":%d,\"tmc_diag\":%d,"
+           "\"tmc_uart_tx\":%d,\"tmc_uart_rx\":%d}\n",
+           PIN_NEOPIXEL_ONBOARD, PIN_IR_EMITTER, PIN_BEAM_INPUT,
+           PIN_HX711_SCK, PIN_HX711_DOUT,
+           PIN_TMC_STEP, PIN_TMC_DIR, PIN_TMC_EN, PIN_TMC_DIAG,
+           PIN_TMC_UART_TX, PIN_TMC_UART_RX);
+    return 0;
+}
+
+static int cmd_safe(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    board_safe();
+    printf("OK\n");
     return 0;
 }
 

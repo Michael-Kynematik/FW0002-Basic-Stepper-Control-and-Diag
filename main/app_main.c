@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "diag_console.h"
 #include "events.h"
+#include "board.h"
 
 #include "esp_system.h"
 
@@ -40,5 +41,6 @@ void app_main(void)
     printf("\nFW0002 boot\n");
     events_init();
     events_emit("boot_reset", "system", (int)esp_reset_reason(), reset_reason_to_str(esp_reset_reason()));
+    board_init_safe();
     diag_console_start();
 }
