@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "esp_console.h"
 #include "esp_err.h"
@@ -14,6 +15,86 @@
 
 #include "linenoise/linenoise.h"
 #include "argtable3/argtable3.h"
+
+typedef struct
+{
+    const char *name;
+    const char *usage;
+    esp_console_cmd_func_t handler;
+    bool *registered;
+} diag_cmd_info_t;
+
+static bool s_cmd_help_registered = false;
+static bool s_cmd_uptime_registered = false;
+static bool s_cmd_reboot_registered = false;
+static bool s_cmd_snapshot_registered = false;
+static bool s_cmd_selftest_registered = false;
+
+static int cmd_help(int argc, char **argv);
+static int cmd_uptime(int argc, char **argv);
+static int cmd_reboot(int argc, char **argv);
+static int cmd_snapshot(int argc, char **argv);
+static int cmd_selftest(int argc, char **argv);
+static const char *reset_reason_to_str(esp_reset_reason_t r);
+
+static const diag_cmd_info_t k_diag_cmds[] = {
+    {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
+    {.name = "uptime", .usage = "Print uptime in ms", .handler = &cmd_uptime, .registered = &s_cmd_uptime_registered},
+    {.name = "reboot", .usage = "Restart the device", .handler = &cmd_reboot, .registered = &s_cmd_reboot_registered},
+    {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
+    {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
+};
+
+static bool build_snapshot_json(char *buf, size_t len)
+{
+    int64_t uptime_ms = esp_timer_get_time() / 1000;
+    uint32_t heap_free = esp_get_free_heap_size();
+    uint32_t heap_min_free = esp_get_minimum_free_heap_size();
+    const char *rr = reset_reason_to_str(esp_reset_reason());
+
+    int written = snprintf(buf, len,
+                           "{\"uptime_ms\":%lld,\"heap_free_bytes\":%u,\"heap_min_free_bytes\":%u,\"reset_reason\":\"%s\"}",
+                           (long long)uptime_ms, (unsigned)heap_free, (unsigned)heap_min_free, rr);
+    if (written < 0 || (size_t)written >= len)
+    {
+        return false;
+    }
+    return true;
+}
+
+static const diag_cmd_info_t *find_cmd_info(const char *name)
+{
+    for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
+    {
+        if (strcmp(k_diag_cmds[i].name, name) == 0)
+        {
+            return &k_diag_cmds[i];
+        }
+    }
+    return NULL;
+}
+
+static bool is_cmd_registered(const char *name)
+{
+    const diag_cmd_info_t *info = find_cmd_info(name);
+    if (info == NULL || info->registered == NULL)
+    {
+        return false;
+    }
+    return *info->registered;
+}
+
+static int cmd_help(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    printf("Commands:\n");
+    for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
+    {
+        printf("%-10s %s\n", k_diag_cmds[i].name, k_diag_cmds[i].usage);
+    }
+    return 0;
+}
 
 static int cmd_uptime(int argc, char **argv)
 {
@@ -60,13 +141,13 @@ static int cmd_snapshot(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    int64_t uptime_ms = esp_timer_get_time() / 1000;
-    uint32_t heap_free = esp_get_free_heap_size();
-    uint32_t heap_min_free = esp_get_minimum_free_heap_size();
-    const char *rr = reset_reason_to_str(esp_reset_reason());
-
-    printf("{\"uptime_ms\":%lld,\"heap_free_bytes\":%u,\"heap_min_free_bytes\":%u,\"reset_reason\":\"%s\"}\n",
-           (long long)uptime_ms, (unsigned)heap_free, (unsigned)heap_min_free, rr);
+    char buf[128];
+    if (!build_snapshot_json(buf, sizeof(buf)))
+    {
+        printf("{\"error\":\"snapshot_format\"}\n");
+        return 0;
+    }
+    printf("%s\n", buf);
     return 0;
 }
 
@@ -80,30 +161,70 @@ static int cmd_reboot(int argc, char **argv)
     return 0;
 }
 
+static int cmd_selftest(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    if (!is_cmd_registered("help"))
+    {
+        printf("ERR missing_help\n");
+        return 0;
+    }
+    if (!is_cmd_registered("uptime"))
+    {
+        printf("ERR missing_uptime\n");
+        return 0;
+    }
+    if (!is_cmd_registered("reboot"))
+    {
+        printf("ERR missing_reboot\n");
+        return 0;
+    }
+    if (!is_cmd_registered("snapshot"))
+    {
+        printf("ERR missing_snapshot\n");
+        return 0;
+    }
+
+    char buf[128];
+    if (!build_snapshot_json(buf, sizeof(buf)))
+    {
+        printf("ERR snapshot_format\n");
+        return 0;
+    }
+    if (strpbrk(buf, "\r\n") != NULL)
+    {
+        printf("ERR snapshot_multiline\n");
+        return 0;
+    }
+    size_t len = strlen(buf);
+    if (len < 2 || buf[0] != '{' || buf[len - 1] != '}')
+    {
+        printf("ERR snapshot_format\n");
+        return 0;
+    }
+
+    printf("OK\n");
+    return 0;
+}
+
 static void register_commands(void)
 {
-    const esp_console_cmd_t uptime_cmd = {
-        .command = "uptime",
-        .help = "Print uptime in ms",
-        .hint = NULL,
-        .func = &cmd_uptime,
-    };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&uptime_cmd));
-
-    const esp_console_cmd_t reboot_cmd = {
-        .command = "reboot",
-        .help = "Restart the device",
-        .hint = NULL,
-        .func = &cmd_reboot,
-    };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&reboot_cmd));
-    const esp_console_cmd_t snapshot_cmd = {
-        .command = "snapshot",
-        .help = "Print one-line JSON system snapshot",
-        .hint = NULL,
-        .func = &cmd_snapshot,
-    };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&snapshot_cmd));
+    for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
+    {
+        const esp_console_cmd_t cmd = {
+            .command = k_diag_cmds[i].name,
+            .help = k_diag_cmds[i].usage,
+            .hint = NULL,
+            .func = k_diag_cmds[i].handler,
+        };
+        esp_err_t err = esp_console_cmd_register(&cmd);
+        if (k_diag_cmds[i].registered != NULL)
+        {
+            *k_diag_cmds[i].registered = (err == ESP_OK);
+        }
+    }
 }
 
 void diag_console_start(void)
@@ -119,9 +240,6 @@ void diag_console_start(void)
     linenoiseSetMultiLine(0);
     linenoiseSetDumbMode(1);
     linenoiseHistorySetMaxLen(50);
-
-    // Built-in help command (lists all registered commands)
-    ESP_ERROR_CHECK(esp_console_register_help_command());
 
     register_commands();
 
