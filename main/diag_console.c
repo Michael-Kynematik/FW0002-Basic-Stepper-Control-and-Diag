@@ -15,6 +15,7 @@
 
 #include "linenoise/linenoise.h"
 #include "argtable3/argtable3.h"
+#include "events.h"
 
 typedef struct
 {
@@ -29,12 +30,14 @@ static bool s_cmd_uptime_registered = false;
 static bool s_cmd_reboot_registered = false;
 static bool s_cmd_snapshot_registered = false;
 static bool s_cmd_selftest_registered = false;
+static bool s_cmd_events_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
 static int cmd_reboot(int argc, char **argv);
 static int cmd_snapshot(int argc, char **argv);
 static int cmd_selftest(int argc, char **argv);
+static int cmd_events(int argc, char **argv);
 static const char *reset_reason_to_str(esp_reset_reason_t r);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
@@ -43,7 +46,47 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "reboot", .usage = "Restart the device", .handler = &cmd_reboot, .registered = &s_cmd_reboot_registered},
     {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
+    {.name = "events", .usage = "Event log (tail [n] | clear)", .handler = &cmd_events, .registered = &s_cmd_events_registered},
 };
+
+static void print_json_string(const char *value)
+{
+    if (value == NULL)
+    {
+        value = "";
+    }
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)value; *p != '\0'; ++p)
+    {
+        unsigned char c = *p;
+        if (c == '"' || c == '\\')
+        {
+            putchar('\\');
+            putchar((char)c);
+        }
+        else if (c < 0x20)
+        {
+            printf("\\u%04x", (unsigned)c);
+        }
+        else
+        {
+            putchar((char)c);
+        }
+    }
+    putchar('"');
+}
+
+static void events_print_record(const events_record_t *rec, void *ctx)
+{
+    (void)ctx;
+    printf("{\"id\":%u,\"ts_ms\":%lld,\"type\":", (unsigned)rec->id, (long long)rec->ts_ms);
+    print_json_string(rec->type);
+    printf(",\"subsystem\":");
+    print_json_string(rec->subsystem);
+    printf(",\"code\":%d,\"reason\":", rec->code);
+    print_json_string(rec->reason);
+    printf("}\n");
+}
 
 static bool build_snapshot_json(char *buf, size_t len)
 {
@@ -206,6 +249,54 @@ static int cmd_selftest(int argc, char **argv)
     }
 
     printf("OK\n");
+    return 0;
+}
+
+static int cmd_events(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printf("ERR invalid_args\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "tail") == 0)
+    {
+        size_t n = 10;
+        if (argc == 3)
+        {
+            char *end = NULL;
+            long val = strtol(argv[2], &end, 10);
+            if (end == argv[2] || *end != '\0' || val <= 0)
+            {
+                printf("ERR invalid_args\n");
+                return 0;
+            }
+            n = (size_t)val;
+        }
+        else if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        events_tail(n, events_print_record, NULL);
+        return 0;
+    }
+    if (strcmp(argv[1], "clear") == 0)
+    {
+        if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        if (!events_clear())
+        {
+            printf("ERR clear\n");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    printf("ERR invalid_args\n");
     return 0;
 }
 
