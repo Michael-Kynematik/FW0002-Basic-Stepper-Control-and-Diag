@@ -5,6 +5,7 @@
 
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "fw_version.h"
 
 #define SNAPSHOT_MAX_FIELDS 16
 
@@ -170,6 +171,21 @@ static bool snapshot_field_reset_reason(char *buf, size_t len, size_t *used)
     return snapshot_append_string(buf, len, used, reset_reason_to_str(esp_reset_reason()));
 }
 
+static bool snapshot_field_fw_version(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_string(buf, len, used, FW_VERSION);
+}
+
+static bool snapshot_field_fw_build(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_string(buf, len, used, FW_BUILD);
+}
+
+static bool snapshot_field_schema_version(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_u32(buf, len, used, (uint32_t)SNAPSHOT_SCHEMA_VERSION);
+}
+
 static bool snapshot_register_defaults(void)
 {
     if (s_defaults_registered)
@@ -179,7 +195,10 @@ static bool snapshot_register_defaults(void)
     if (!snapshot_register_field("uptime_ms", snapshot_field_uptime) ||
         !snapshot_register_field("heap_free_bytes", snapshot_field_heap_free) ||
         !snapshot_register_field("heap_min_free_bytes", snapshot_field_heap_min_free) ||
-        !snapshot_register_field("reset_reason", snapshot_field_reset_reason))
+        !snapshot_register_field("reset_reason", snapshot_field_reset_reason) ||
+        !snapshot_register_field("fw_version", snapshot_field_fw_version) ||
+        !snapshot_register_field("fw_build", snapshot_field_fw_build) ||
+        !snapshot_register_field("schema_version", snapshot_field_schema_version))
     {
         return false;
     }
