@@ -18,6 +18,9 @@
 #include "events.h"
 #include "snapshot.h"
 #include "remote_actions.h"
+#include "fw_version.h"
+
+#include "esp_mac.h"
 
 typedef struct
 {
@@ -34,6 +37,8 @@ static bool s_cmd_snapshot_registered = false;
 static bool s_cmd_selftest_registered = false;
 static bool s_cmd_events_registered = false;
 static bool s_cmd_remote_registered = false;
+static bool s_cmd_version_registered = false;
+static bool s_cmd_id_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -42,16 +47,22 @@ static int cmd_snapshot(int argc, char **argv);
 static int cmd_selftest(int argc, char **argv);
 static int cmd_events(int argc, char **argv);
 static int cmd_remote(int argc, char **argv);
+static int cmd_version(int argc, char **argv);
+static int cmd_id(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
     {.name = "uptime", .usage = "Print uptime in ms", .handler = &cmd_uptime, .registered = &s_cmd_uptime_registered},
     {.name = "reboot", .usage = "Restart the device", .handler = &cmd_reboot, .registered = &s_cmd_reboot_registered},
     {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
+    {.name = "version", .usage = "Print firmware version/build", .handler = &cmd_version, .registered = &s_cmd_version_registered},
+    {.name = "id", .usage = "Print device ID", .handler = &cmd_id, .registered = &s_cmd_id_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "Event log (tail [n] | clear)", .handler = &cmd_events, .registered = &s_cmd_events_registered},
     {.name = "remote", .usage = "Remote actions (list|exec|unlock|lock|unlock_status)", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
 };
+
+#define SNAPSHOT_JSON_MAX 512
 
 static void print_json_string(const char *value)
 {
@@ -141,13 +152,47 @@ static int cmd_snapshot(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    char buf[128];
+    char buf[SNAPSHOT_JSON_MAX];
     if (!snapshot_build(buf, sizeof(buf)))
     {
         printf("{\"error\":\"snapshot_format\"}\n");
         return 0;
     }
     printf("%s\n", buf);
+    return 0;
+}
+
+static int cmd_version(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    printf("{\"fw_version\":\"%s\",\"fw_build\":\"%s\"}\n", FW_VERSION, FW_BUILD);
+    return 0;
+}
+
+static void format_mac_hex(const uint8_t mac[6], char *out, size_t out_len)
+{
+    if (out == NULL || out_len < 13)
+    {
+        return;
+    }
+    snprintf(out, out_len, "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static int cmd_id(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK)
+    {
+        printf("ERR read_mac\n");
+        return 0;
+    }
+    char id[13];
+    format_mac_hex(mac, id, sizeof(id));
+    printf("{\"device_id\":\"%s\"}\n", id);
     return 0;
 }
 
@@ -187,7 +232,7 @@ static int cmd_selftest(int argc, char **argv)
         return 0;
     }
 
-    char buf[128];
+    char buf[SNAPSHOT_JSON_MAX];
     if (!snapshot_build(buf, sizeof(buf)))
     {
         printf("ERR snapshot_format\n");

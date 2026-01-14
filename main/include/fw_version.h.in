@@ -1,0 +1,5 @@
+#pragma once
+
+#define FW_VERSION "@FW_VERSION@"
+#define FW_BUILD "@FW_BUILD@"
+#define SNAPSHOT_SCHEMA_VERSION @SNAPSHOT_SCHEMA_VERSION@
