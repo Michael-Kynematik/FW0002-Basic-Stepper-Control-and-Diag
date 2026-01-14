@@ -16,6 +16,7 @@
 #include "linenoise/linenoise.h"
 #include "argtable3/argtable3.h"
 #include "events.h"
+#include "snapshot.h"
 
 typedef struct
 {
@@ -38,7 +39,6 @@ static int cmd_reboot(int argc, char **argv);
 static int cmd_snapshot(int argc, char **argv);
 static int cmd_selftest(int argc, char **argv);
 static int cmd_events(int argc, char **argv);
-static const char *reset_reason_to_str(esp_reset_reason_t r);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -88,22 +88,6 @@ static void events_print_record(const events_record_t *rec, void *ctx)
     printf("}\n");
 }
 
-static bool build_snapshot_json(char *buf, size_t len)
-{
-    int64_t uptime_ms = esp_timer_get_time() / 1000;
-    uint32_t heap_free = esp_get_free_heap_size();
-    uint32_t heap_min_free = esp_get_minimum_free_heap_size();
-    const char *rr = reset_reason_to_str(esp_reset_reason());
-
-    int written = snprintf(buf, len,
-                           "{\"uptime_ms\":%lld,\"heap_free_bytes\":%u,\"heap_min_free_bytes\":%u,\"reset_reason\":\"%s\"}",
-                           (long long)uptime_ms, (unsigned)heap_free, (unsigned)heap_min_free, rr);
-    if (written < 0 || (size_t)written >= len)
-    {
-        return false;
-    }
-    return true;
-}
 
 static const diag_cmd_info_t *find_cmd_info(const char *name)
 {
@@ -148,44 +132,13 @@ static int cmd_uptime(int argc, char **argv)
     return 0;
 }
 
-static const char *reset_reason_to_str(esp_reset_reason_t r)
-{
-    switch (r)
-    {
-    case ESP_RST_UNKNOWN:
-        return "UNKNOWN";
-    case ESP_RST_POWERON:
-        return "POWERON";
-    case ESP_RST_EXT:
-        return "EXT";
-    case ESP_RST_SW:
-        return "SW";
-    case ESP_RST_PANIC:
-        return "PANIC";
-    case ESP_RST_INT_WDT:
-        return "INT_WDT";
-    case ESP_RST_TASK_WDT:
-        return "TASK_WDT";
-    case ESP_RST_WDT:
-        return "WDT";
-    case ESP_RST_DEEPSLEEP:
-        return "DEEPSLEEP";
-    case ESP_RST_BROWNOUT:
-        return "BROWNOUT";
-    case ESP_RST_SDIO:
-        return "SDIO";
-    default:
-        return "OTHER";
-    }
-}
-
 static int cmd_snapshot(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
 
     char buf[128];
-    if (!build_snapshot_json(buf, sizeof(buf)))
+    if (!snapshot_build(buf, sizeof(buf)))
     {
         printf("{\"error\":\"snapshot_format\"}\n");
         return 0;
@@ -231,7 +184,7 @@ static int cmd_selftest(int argc, char **argv)
     }
 
     char buf[128];
-    if (!build_snapshot_json(buf, sizeof(buf)))
+    if (!snapshot_build(buf, sizeof(buf)))
     {
         printf("ERR snapshot_format\n");
         return 0;

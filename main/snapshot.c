@@ -1,0 +1,249 @@
+#include "snapshot.h"
+
+#include <string.h>
+#include <stdio.h>
+
+#include "esp_system.h"
+#include "esp_timer.h"
+
+#define SNAPSHOT_MAX_FIELDS 16
+
+typedef struct
+{
+    const char *key;
+    snapshot_value_fn value_fn;
+} snapshot_field_t;
+
+static snapshot_field_t s_fields[SNAPSHOT_MAX_FIELDS];
+static size_t s_field_count = 0;
+static bool s_defaults_registered = false;
+
+static bool snapshot_append_char(char *buf, size_t len, size_t *used, char c)
+{
+    if (*used + 1 >= len)
+    {
+        return false;
+    }
+    buf[*used] = c;
+    *used += 1;
+    buf[*used] = '\0';
+    return true;
+}
+
+static bool snapshot_append_bytes(char *buf, size_t len, size_t *used, const char *src, size_t src_len)
+{
+    if (*used + src_len >= len)
+    {
+        return false;
+    }
+    memcpy(&buf[*used], src, src_len);
+    *used += src_len;
+    buf[*used] = '\0';
+    return true;
+}
+
+bool snapshot_append_raw(char *buf, size_t len, size_t *used, const char *value)
+{
+    if (value == NULL)
+    {
+        return false;
+    }
+    return snapshot_append_bytes(buf, len, used, value, strlen(value));
+}
+
+bool snapshot_append_u32(char *buf, size_t len, size_t *used, uint32_t value)
+{
+    char tmp[16];
+    int written = snprintf(tmp, sizeof(tmp), "%u", (unsigned)value);
+    if (written < 0 || (size_t)written >= sizeof(tmp))
+    {
+        return false;
+    }
+    return snapshot_append_bytes(buf, len, used, tmp, (size_t)written);
+}
+
+bool snapshot_append_i64(char *buf, size_t len, size_t *used, int64_t value)
+{
+    char tmp[24];
+    int written = snprintf(tmp, sizeof(tmp), "%lld", (long long)value);
+    if (written < 0 || (size_t)written >= sizeof(tmp))
+    {
+        return false;
+    }
+    return snapshot_append_bytes(buf, len, used, tmp, (size_t)written);
+}
+
+bool snapshot_append_bool(char *buf, size_t len, size_t *used, bool value)
+{
+    return snapshot_append_raw(buf, len, used, value ? "true" : "false");
+}
+
+bool snapshot_append_string(char *buf, size_t len, size_t *used, const char *value)
+{
+    if (value == NULL)
+    {
+        return false;
+    }
+    if (!snapshot_append_char(buf, len, used, '"'))
+    {
+        return false;
+    }
+    for (const unsigned char *p = (const unsigned char *)value; *p != '\0'; ++p)
+    {
+        unsigned char c = *p;
+        if (c == '"' || c == '\\')
+        {
+            if (!snapshot_append_char(buf, len, used, '\\') ||
+                !snapshot_append_char(buf, len, used, (char)c))
+            {
+                return false;
+            }
+        }
+        else if (c < 0x20)
+        {
+            char esc[7];
+            int written = snprintf(esc, sizeof(esc), "\\u%04x", (unsigned)c);
+            if (written != 6 || !snapshot_append_bytes(buf, len, used, esc, 6))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!snapshot_append_char(buf, len, used, (char)c))
+            {
+                return false;
+            }
+        }
+    }
+    return snapshot_append_char(buf, len, used, '"');
+}
+
+static const char *reset_reason_to_str(esp_reset_reason_t r)
+{
+    switch (r)
+    {
+    case ESP_RST_UNKNOWN:
+        return "UNKNOWN";
+    case ESP_RST_POWERON:
+        return "POWERON";
+    case ESP_RST_EXT:
+        return "EXT";
+    case ESP_RST_SW:
+        return "SW";
+    case ESP_RST_PANIC:
+        return "PANIC";
+    case ESP_RST_INT_WDT:
+        return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+        return "TASK_WDT";
+    case ESP_RST_WDT:
+        return "WDT";
+    case ESP_RST_DEEPSLEEP:
+        return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:
+        return "BROWNOUT";
+    case ESP_RST_SDIO:
+        return "SDIO";
+    default:
+        return "OTHER";
+    }
+}
+
+static bool snapshot_field_uptime(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_i64(buf, len, used, esp_timer_get_time() / 1000);
+}
+
+static bool snapshot_field_heap_free(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_u32(buf, len, used, esp_get_free_heap_size());
+}
+
+static bool snapshot_field_heap_min_free(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_u32(buf, len, used, esp_get_minimum_free_heap_size());
+}
+
+static bool snapshot_field_reset_reason(char *buf, size_t len, size_t *used)
+{
+    return snapshot_append_string(buf, len, used, reset_reason_to_str(esp_reset_reason()));
+}
+
+static bool snapshot_register_defaults(void)
+{
+    if (s_defaults_registered)
+    {
+        return true;
+    }
+    if (!snapshot_register_field("uptime_ms", snapshot_field_uptime) ||
+        !snapshot_register_field("heap_free_bytes", snapshot_field_heap_free) ||
+        !snapshot_register_field("heap_min_free_bytes", snapshot_field_heap_min_free) ||
+        !snapshot_register_field("reset_reason", snapshot_field_reset_reason))
+    {
+        return false;
+    }
+    s_defaults_registered = true;
+    return true;
+}
+
+bool snapshot_register_field(const char *key, snapshot_value_fn value_fn)
+{
+    if (key == NULL || value_fn == NULL)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < s_field_count; ++i)
+    {
+        if (strcmp(s_fields[i].key, key) == 0)
+        {
+            return false;
+        }
+    }
+    if (s_field_count >= SNAPSHOT_MAX_FIELDS)
+    {
+        return false;
+    }
+    s_fields[s_field_count].key = key;
+    s_fields[s_field_count].value_fn = value_fn;
+    s_field_count++;
+    return true;
+}
+
+bool snapshot_build(char *buf, size_t len)
+{
+    if (!snapshot_register_defaults())
+    {
+        return false;
+    }
+    if (buf == NULL || len < 3)
+    {
+        return false;
+    }
+    size_t used = 0;
+    buf[0] = '\0';
+    if (!snapshot_append_char(buf, len, &used, '{'))
+    {
+        return false;
+    }
+    for (size_t i = 0; i < s_field_count; ++i)
+    {
+        if (i > 0 && !snapshot_append_char(buf, len, &used, ','))
+        {
+            return false;
+        }
+        if (!snapshot_append_string(buf, len, &used, s_fields[i].key))
+        {
+            return false;
+        }
+        if (!snapshot_append_char(buf, len, &used, ':'))
+        {
+            return false;
+        }
+        if (!s_fields[i].value_fn(buf, len, &used))
+        {
+            return false;
+        }
+    }
+    return snapshot_append_char(buf, len, &used, '}');
+}
