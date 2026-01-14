@@ -1,0 +1,1 @@
+This repo simply established two way serial communications with an ESP32 Dev board usign the bottom usb c connection port in the board.
