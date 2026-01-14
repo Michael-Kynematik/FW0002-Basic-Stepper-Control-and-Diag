@@ -7,7 +7,7 @@ void app_main(void)
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    printf("\r\nCDC echo ready on COM6. Type and press Enter.\r\n");
+    printf("\r\nFW0002 ready on COM6. Type and press Enter.\r\n");
 
     while (1) {
         int c = fgetc(stdin);          // blocks until a char arrives over CDC console
