@@ -2,6 +2,9 @@
 #include "diag_console.h"
 #include "events.h"
 #include "board.h"
+#include "led.h"
+#include "ir.h"
+#include "beam.h"
 
 #include "esp_system.h"
 
@@ -42,5 +45,9 @@ void app_main(void)
     events_init();
     events_emit("boot_reset", "system", (int)esp_reset_reason(), reset_reason_to_str(esp_reset_reason()));
     board_init_safe();
+    led_init();
+    ir_init();
+    beam_init();
+    led_set_mode(LED_MODE_BOOTING);
     diag_console_start();
 }

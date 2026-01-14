@@ -33,5 +33,8 @@ configure_file(
 
 idf_component_register(
     SRCS "app_main.c" "diag_console.c" "snapshot.c" "events.c" "remote_actions.c" "board.c"
+         "led.c" "ir.c" "beam.c" "led_strip.c"
     INCLUDE_DIRS "include" "${CMAKE_CURRENT_BINARY_DIR}"
 )
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_RMT_SUPPRESS_DEPRECATE_WARN=1)

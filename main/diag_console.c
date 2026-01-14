@@ -20,6 +20,9 @@
 #include "remote_actions.h"
 #include "fw_version.h"
 #include "board.h"
+#include "led.h"
+#include "ir.h"
+#include "beam.h"
 
 #include "esp_mac.h"
 
@@ -42,6 +45,9 @@ static bool s_cmd_version_registered = false;
 static bool s_cmd_id_registered = false;
 static bool s_cmd_pins_registered = false;
 static bool s_cmd_safe_registered = false;
+static bool s_cmd_led_registered = false;
+static bool s_cmd_ir_registered = false;
+static bool s_cmd_beam_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -54,9 +60,12 @@ static int cmd_version(int argc, char **argv);
 static int cmd_id(int argc, char **argv);
 static int cmd_pins(int argc, char **argv);
 static int cmd_safe(int argc, char **argv);
+static int cmd_led(int argc, char **argv);
+static int cmd_ir(int argc, char **argv);
+static int cmd_beam(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
-    {.name = "help", .usage = "List commands", .handler = &cmd_help, .registered = &s_cmd_help_registered},
+    {.name = "help", .usage = "[command]", .handler = &cmd_help, .registered = &s_cmd_help_registered},
     {.name = "uptime", .usage = "Print uptime in ms", .handler = &cmd_uptime, .registered = &s_cmd_uptime_registered},
     {.name = "reboot", .usage = "Restart the device", .handler = &cmd_reboot, .registered = &s_cmd_reboot_registered},
     {.name = "snapshot", .usage = "Print one-line JSON system snapshot", .handler = &cmd_snapshot, .registered = &s_cmd_snapshot_registered},
@@ -64,9 +73,12 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "id", .usage = "Print device ID", .handler = &cmd_id, .registered = &s_cmd_id_registered},
     {.name = "pins", .usage = "Print pin map", .handler = &cmd_pins, .registered = &s_cmd_pins_registered},
     {.name = "safe", .usage = "Apply board safe state", .handler = &cmd_safe, .registered = &s_cmd_safe_registered},
+    {.name = "led", .usage = "off|r|g|b|booting|ready|fault|status", .handler = &cmd_led, .registered = &s_cmd_led_registered},
+    {.name = "ir", .usage = "on|off|status", .handler = &cmd_ir, .registered = &s_cmd_ir_registered},
+    {.name = "beam", .usage = "status", .handler = &cmd_beam, .registered = &s_cmd_beam_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
-    {.name = "events", .usage = "Event log (tail [n] | clear)", .handler = &cmd_events, .registered = &s_cmd_events_registered},
-    {.name = "remote", .usage = "Remote actions (list|exec|unlock|lock|unlock_status)", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
+    {.name = "events", .usage = "tail [n] | clear", .handler = &cmd_events, .registered = &s_cmd_events_registered},
+    {.name = "remote", .usage = "list | exec <action> [args...] | unlock <seconds> | lock | unlock_status", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
 };
 
 #define SNAPSHOT_JSON_MAX 512
@@ -135,13 +147,27 @@ static bool is_cmd_registered(const char *name)
 
 static int cmd_help(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
-    printf("Commands:\n");
-    for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
+    if (argc == 1)
     {
-        printf("%-10s %s\n", k_diag_cmds[i].name, k_diag_cmds[i].usage);
+        printf("Commands:\n");
+        for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
+        {
+            printf("%-10s %s\n", k_diag_cmds[i].name, k_diag_cmds[i].usage);
+        }
+        return 0;
     }
+    if (argc == 2)
+    {
+        const diag_cmd_info_t *info = find_cmd_info(argv[1]);
+        if (info == NULL)
+        {
+            printf("ERR unknown_command\n");
+            return 0;
+        }
+        printf("%s %s\n", info->name, info->usage);
+        return 0;
+    }
+    printf("ERR invalid_args\n");
     return 0;
 }
 
@@ -227,6 +253,128 @@ static int cmd_safe(int argc, char **argv)
     return 0;
 }
 
+static int cmd_led(int argc, char **argv)
+{
+    if (argc != 2)
+    {
+        printf("ERR invalid_args\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0)
+    {
+        char buf[96];
+        if (!led_get_status_json(buf, sizeof(buf)))
+        {
+            printf("ERR led\n");
+            return 0;
+        }
+        printf("%s\n", buf);
+        return 0;
+    }
+    if (strcmp(argv[1], "off") == 0)
+    {
+        led_set_mode(LED_MODE_OFF);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "r") == 0)
+    {
+        led_set_rgb(255, 0, 0);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "g") == 0)
+    {
+        led_set_rgb(0, 255, 0);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "b") == 0)
+    {
+        led_set_rgb(0, 0, 255);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "booting") == 0)
+    {
+        led_set_mode(LED_MODE_BOOTING);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "ready") == 0)
+    {
+        led_set_mode(LED_MODE_READY);
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "fault") == 0)
+    {
+        led_set_mode(LED_MODE_FAULT);
+        printf("OK\n");
+        return 0;
+    }
+    printf("ERR invalid_args\n");
+    return 0;
+}
+
+static int cmd_ir(int argc, char **argv)
+{
+    if (argc != 2)
+    {
+        printf("ERR invalid_args\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0)
+    {
+        char buf[32];
+        if (!ir_get_status_json(buf, sizeof(buf)))
+        {
+            printf("ERR ir\n");
+            return 0;
+        }
+        printf("%s\n", buf);
+        return 0;
+    }
+    if (strcmp(argv[1], "on") == 0)
+    {
+        if (!ir_set(true))
+        {
+            printf("ERR ir\n");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "off") == 0)
+    {
+        if (!ir_set(false))
+        {
+            printf("ERR ir\n");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    printf("ERR invalid_args\n");
+    return 0;
+}
+
+static int cmd_beam(int argc, char **argv)
+{
+    if (argc != 1)
+    {
+        printf("ERR invalid_args\n");
+        return 0;
+    }
+    char buf[32];
+    if (!beam_get_status_json(buf, sizeof(buf)))
+    {
+        printf("ERR beam\n");
+        return 0;
+    }
+    printf("%s\n", buf);
+    return 0;
+}
 static int cmd_reboot(int argc, char **argv)
 {
     (void)argc;
@@ -532,6 +680,7 @@ void diag_console_start(void)
     printf("\nFW0002 diagnostic console\n");
     printf("Type 'help' to list commands.\n\n");
 
+    led_set_mode(LED_MODE_READY);
     while (true)
     {
         char *line = linenoise("fw0002> ");
