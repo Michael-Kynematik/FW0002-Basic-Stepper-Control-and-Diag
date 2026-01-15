@@ -8,6 +8,7 @@
 #include "esp_mac.h"
 #include "fw_version.h"
 #include "board.h"
+#include "loadcell_scale.h"
 
 #define SNAPSHOT_MAX_FIELDS 16
 
@@ -211,6 +212,19 @@ static bool snapshot_field_board_safe(char *buf, size_t len, size_t *used)
     return snapshot_append_bool(buf, len, used, board_is_safe());
 }
 
+static bool snapshot_field_scale(char *buf, size_t len, size_t *used)
+{
+    char scale_json[192];
+    if (!loadcell_scale_get_status_json(scale_json, sizeof(scale_json)))
+    {
+        return snapshot_append_raw(buf, len, used,
+                                   "{\"raw\":null,\"grams\":null,"
+                                   "\"tare_offset_raw\":0,\"scale_factor\":0.0,"
+                                   "\"calibrated\":false}");
+    }
+    return snapshot_append_raw(buf, len, used, scale_json);
+}
+
 static bool snapshot_register_defaults(void)
 {
     if (s_defaults_registered)
@@ -226,7 +240,8 @@ static bool snapshot_register_defaults(void)
         !snapshot_register_field("schema_version", snapshot_field_schema_version) ||
         !snapshot_register_field("device_id", snapshot_field_device_id) ||
         !snapshot_register_field("hw_rev", snapshot_field_hw_rev) ||
-        !snapshot_register_field("board_safe", snapshot_field_board_safe))
+        !snapshot_register_field("board_safe", snapshot_field_board_safe) ||
+        !snapshot_register_field("scale", snapshot_field_scale))
     {
         return false;
     }

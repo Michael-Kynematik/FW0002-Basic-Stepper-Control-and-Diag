@@ -6,6 +6,7 @@
 
 #include "events.h"
 #include "snapshot.h"
+#include "neopixel.h"
 #include "esp_timer.h"
 
 #ifndef REMOTE_ACTIONS_REBOOT_NEEDS_UNLOCK
@@ -24,21 +25,21 @@ typedef struct
 } remote_action_def_t;
 
 static bool s_safe_state = true;
-static bool s_led_on = false;
+static bool s_neopixel_on = false;
 static int64_t s_unlock_expires_us = 0;
 
 static remote_action_result_t action_safe(const char *args, char *out_json, size_t out_len);
 static remote_action_result_t action_reboot(const char *args, char *out_json, size_t out_len);
 static remote_action_result_t action_snapshot_now(const char *args, char *out_json, size_t out_len);
-static remote_action_result_t action_led_status(const char *args, char *out_json, size_t out_len);
-static remote_action_result_t action_led_set(const char *args, char *out_json, size_t out_len);
+static remote_action_result_t action_neopixel_status(const char *args, char *out_json, size_t out_len);
+static remote_action_result_t action_neopixel_set(const char *args, char *out_json, size_t out_len);
 
 static const remote_action_def_t k_actions[] = {
     {.name = "safe", .require_unlock = false, .handler = action_safe},
     {.name = "reboot", .require_unlock = (REMOTE_ACTIONS_REBOOT_NEEDS_UNLOCK != 0), .handler = action_reboot},
     {.name = "snapshot_now", .require_unlock = false, .handler = action_snapshot_now},
-    {.name = "led_status", .require_unlock = false, .handler = action_led_status},
-    {.name = "led_set", .require_unlock = true, .handler = action_led_set},
+    {.name = "neopixel_status", .require_unlock = false, .handler = action_neopixel_status},
+    {.name = "neopixel_set", .require_unlock = true, .handler = action_neopixel_set},
 };
 
 static bool is_motor_action(const char *action)
@@ -202,14 +203,15 @@ static remote_action_result_t action_snapshot_now(const char *args, char *out_js
     return REMOTE_ACTION_OK;
 }
 
-static remote_action_result_t action_led_status(const char *args, char *out_json, size_t out_len)
+static remote_action_result_t action_neopixel_status(const char *args, char *out_json, size_t out_len)
 {
     (void)args;
     if (out_json == NULL || out_len == 0)
     {
         return REMOTE_ACTION_ERR_INTERNAL;
     }
-    int written = snprintf(out_json, out_len, "{\"led_on\":%s}", s_led_on ? "true" : "false");
+    int written = snprintf(out_json, out_len, "{\"neopixel_on\":%s}",
+                           s_neopixel_on ? "true" : "false");
     if (written < 0 || (size_t)written >= out_len)
     {
         out_json[0] = '\0';
@@ -218,39 +220,37 @@ static remote_action_result_t action_led_status(const char *args, char *out_json
     return REMOTE_ACTION_OK;
 }
 
-static bool parse_bool_arg(const char *args, bool *value)
-{
-    if (args == NULL || value == NULL)
-    {
-        return false;
-    }
-    if (strcmp(args, "1") == 0 || strcmp(args, "on") == 0 || strcmp(args, "true") == 0)
-    {
-        *value = true;
-        return true;
-    }
-    if (strcmp(args, "r") == 0)
-    {
-        *value = true;
-        return true;
-    }
-    if (strcmp(args, "0") == 0 || strcmp(args, "off") == 0 || strcmp(args, "false") == 0)
-    {
-        *value = false;
-        return true;
-    }
-    return false;
-}
-
-static remote_action_result_t action_led_set(const char *args, char *out_json, size_t out_len)
+static remote_action_result_t action_neopixel_set(const char *args, char *out_json, size_t out_len)
 {
     (void)out_json;
     (void)out_len;
-    bool value = false;
-    if (!parse_bool_arg(args, &value))
+    if (args == NULL)
     {
         return REMOTE_ACTION_ERR_INVALID_ARGS;
     }
-    s_led_on = value;
-    return REMOTE_ACTION_OK;
+    if (strcmp(args, "off") == 0)
+    {
+        s_neopixel_on = false;
+        neopixel_set_mode(NEOPIXEL_MODE_OFF);
+        return REMOTE_ACTION_OK;
+    }
+    if (strcmp(args, "r") == 0)
+    {
+        s_neopixel_on = true;
+        neopixel_set_rgb(255, 0, 0);
+        return REMOTE_ACTION_OK;
+    }
+    if (strcmp(args, "g") == 0)
+    {
+        s_neopixel_on = true;
+        neopixel_set_rgb(0, 255, 0);
+        return REMOTE_ACTION_OK;
+    }
+    if (strcmp(args, "b") == 0)
+    {
+        s_neopixel_on = true;
+        neopixel_set_rgb(0, 0, 255);
+        return REMOTE_ACTION_OK;
+    }
+    return REMOTE_ACTION_ERR_INVALID_ARGS;
 }

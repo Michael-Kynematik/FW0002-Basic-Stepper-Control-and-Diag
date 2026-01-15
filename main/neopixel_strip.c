@@ -1,31 +1,31 @@
-#include "led_strip.h"
+#include "neopixel_strip.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include "driver/rmt.h"
 
-#define LED_STRIP_RMT_CHANNEL RMT_CHANNEL_0
-#define LED_STRIP_CLK_DIV 8
-#define LED_STRIP_T0H 4
-#define LED_STRIP_T0L 8
-#define LED_STRIP_T1H 8
-#define LED_STRIP_T1L 4
+#define NEOPIXEL_STRIP_RMT_CHANNEL RMT_CHANNEL_0
+#define NEOPIXEL_STRIP_CLK_DIV 8
+#define NEOPIXEL_STRIP_T0H 4
+#define NEOPIXEL_STRIP_T0L 8
+#define NEOPIXEL_STRIP_T1H 8
+#define NEOPIXEL_STRIP_T1L 4
 
-struct led_strip_t
+struct neopixel_strip_t
 {
     int gpio;
     uint32_t max_leds;
     uint8_t *pixels;
 };
 
-static esp_err_t led_strip_init_rmt(int gpio)
+static esp_err_t neopixel_strip_init_rmt(int gpio)
 {
     rmt_config_t config = {
         .rmt_mode = RMT_MODE_TX,
-        .channel = LED_STRIP_RMT_CHANNEL,
+        .channel = NEOPIXEL_STRIP_RMT_CHANNEL,
         .gpio_num = gpio,
-        .clk_div = LED_STRIP_CLK_DIV,
+        .clk_div = NEOPIXEL_STRIP_CLK_DIV,
         .mem_block_num = 1,
         .tx_config = {
             .loop_en = false,
@@ -39,25 +39,25 @@ static esp_err_t led_strip_init_rmt(int gpio)
     {
         return err;
     }
-    return rmt_driver_install(LED_STRIP_RMT_CHANNEL, 0, 0);
+    return rmt_driver_install(NEOPIXEL_STRIP_RMT_CHANNEL, 0, 0);
 }
 
-esp_err_t led_strip_new_rmt_device(const led_strip_config_t *config,
-                                   const led_strip_rmt_config_t *rmt_config,
-                                   led_strip_handle_t *out_handle)
+esp_err_t neopixel_strip_new_rmt_device(const neopixel_strip_config_t *config,
+                                        const neopixel_strip_rmt_config_t *rmt_config,
+                                        neopixel_strip_handle_t *out_handle)
 {
     (void)rmt_config;
     if (config == NULL || out_handle == NULL || config->max_leds == 0)
     {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = led_strip_init_rmt(config->strip_gpio_num);
+    esp_err_t err = neopixel_strip_init_rmt(config->strip_gpio_num);
     if (err != ESP_OK)
     {
         return err;
     }
 
-    led_strip_handle_t strip = calloc(1, sizeof(*strip));
+    neopixel_strip_handle_t strip = calloc(1, sizeof(*strip));
     if (strip == NULL)
     {
         return ESP_ERR_NO_MEM;
@@ -74,8 +74,8 @@ esp_err_t led_strip_new_rmt_device(const led_strip_config_t *config,
     return ESP_OK;
 }
 
-esp_err_t led_strip_set_pixel(led_strip_handle_t handle, uint32_t index,
-                              uint8_t red, uint8_t green, uint8_t blue)
+esp_err_t neopixel_strip_set_pixel(neopixel_strip_handle_t handle, uint32_t index,
+                                   uint8_t red, uint8_t green, uint8_t blue)
 {
     if (handle == NULL || index >= handle->max_leds)
     {
@@ -88,7 +88,7 @@ esp_err_t led_strip_set_pixel(led_strip_handle_t handle, uint32_t index,
     return ESP_OK;
 }
 
-esp_err_t led_strip_refresh(led_strip_handle_t handle)
+esp_err_t neopixel_strip_refresh(neopixel_strip_handle_t handle)
 {
     if (handle == NULL)
     {
@@ -110,17 +110,17 @@ esp_err_t led_strip_refresh(led_strip_handle_t handle)
             bool one = (byte >> bit) & 0x01;
             rmt_item32_t item = {
                 .level0 = 1,
-                .duration0 = one ? LED_STRIP_T1H : LED_STRIP_T0H,
+                .duration0 = one ? NEOPIXEL_STRIP_T1H : NEOPIXEL_STRIP_T0H,
                 .level1 = 0,
-                .duration1 = one ? LED_STRIP_T1L : LED_STRIP_T0L,
+                .duration1 = one ? NEOPIXEL_STRIP_T1L : NEOPIXEL_STRIP_T0L,
             };
             items[item_index++] = item;
         }
     }
-    esp_err_t err = rmt_write_items(LED_STRIP_RMT_CHANNEL, items, total_bits, true);
+    esp_err_t err = rmt_write_items(NEOPIXEL_STRIP_RMT_CHANNEL, items, total_bits, true);
     if (err == ESP_OK)
     {
-        err = rmt_wait_tx_done(LED_STRIP_RMT_CHANNEL, pdMS_TO_TICKS(10));
+        err = rmt_wait_tx_done(NEOPIXEL_STRIP_RMT_CHANNEL, pdMS_TO_TICKS(10));
     }
     free(items);
     return err;
