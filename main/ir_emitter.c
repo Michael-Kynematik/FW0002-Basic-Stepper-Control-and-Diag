@@ -1,4 +1,4 @@
-#include "ir.h"
+#include "ir_emitter.h"
 
 #include <stdio.h>
 
@@ -7,9 +7,9 @@
 
 #include "driver/gpio.h"
 
-static bool s_ir_on = false;
+static bool s_ir_emitter_on = false;
 
-bool ir_init(void)
+bool ir_emitter_init(void)
 {
     gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << PIN_IR_EMITTER,
@@ -22,31 +22,31 @@ bool ir_init(void)
     {
         return false;
     }
-    s_ir_on = false;
+    s_ir_emitter_on = false;
     gpio_set_level(PIN_IR_EMITTER, 0);
     return true;
 }
 
-bool ir_set(bool on)
+bool ir_emitter_set(bool on)
 {
     if (gpio_set_level(PIN_IR_EMITTER, on ? 1 : 0) != ESP_OK)
     {
         return false;
     }
-    if (s_ir_on != on)
+    if (s_ir_emitter_on != on)
     {
-        s_ir_on = on;
-        events_emit("ir", "ir", 0, on ? "on" : "off");
+        s_ir_emitter_on = on;
+        events_emit("ir_emitter", "ir_emitter", 0, on ? "on" : "off");
     }
     return true;
 }
 
-bool ir_get_status_json(char *buf, size_t len)
+bool ir_emitter_get_status_json(char *buf, size_t len)
 {
     if (buf == NULL || len == 0)
     {
         return false;
     }
-    int written = snprintf(buf, len, "{\"ir_on\":%s}", s_ir_on ? "true" : "false");
+    int written = snprintf(buf, len, "{\"ir_emitter_on\":%s}", s_ir_emitter_on ? "true" : "false");
     return (written >= 0 && (size_t)written < len);
 }

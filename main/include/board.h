@@ -8,16 +8,16 @@
 // Centralized pin map
 #define PIN_NEOPIXEL_ONBOARD  48
 #define PIN_IR_EMITTER        8
-#define PIN_BEAM_INPUT        10
-#define PIN_HX711_SCK         12
-#define PIN_HX711_DOUT        13
+#define PIN_IR_SENSOR_INPUT   10
+#define PIN_LOADCELL_ADC_SCK  12
+#define PIN_LOADCELL_ADC_DOUT 13
 
-#define PIN_TMC_STEP          4
-#define PIN_TMC_DIR           5
-#define PIN_TMC_EN            6
-#define PIN_TMC_DIAG          7
-#define PIN_TMC_UART_TX       17
-#define PIN_TMC_UART_RX       18
+#define PIN_STEPPER_DRIVER_STEP    4
+#define PIN_STEPPER_DRIVER_DIR     5
+#define PIN_STEPPER_DRIVER_EN      6
+#define PIN_STEPPER_DRIVER_DIAG    7
+#define PIN_STEPPER_DRIVER_UART_TX 17
+#define PIN_STEPPER_DRIVER_UART_RX 18
 
 // RESERVED / HIGH-RISK PINS (DevKitC-1 / ESP32-S3)
 // USB CDC console: GPIO 19/20 (D-/D+) are reserved.

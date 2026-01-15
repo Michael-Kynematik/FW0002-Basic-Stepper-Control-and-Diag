@@ -32,8 +32,7 @@ configure_file(
 )
 
 idf_component_register(
-    SRCS "app_main.c" "diag_console.c" "snapshot.c" "events.c" "remote_actions.c" "board.c"
-         "led.c" "ir.c" "beam.c" "led_strip.c"
+    SRCS "ir_sensor.c" "ir_emitter.c" "neopixel_strip.c" "neopixel.c" "loadcell_scale.c" "loadcell_adc.c" "app_main.c" "diag_console.c" "snapshot.c" "events.c" "remote_actions.c" "board.c"
     INCLUDE_DIRS "include" "${CMAKE_CURRENT_BINARY_DIR}"
 )
 

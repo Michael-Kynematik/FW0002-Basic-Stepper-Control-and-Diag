@@ -20,9 +20,10 @@
 #include "remote_actions.h"
 #include "fw_version.h"
 #include "board.h"
-#include "led.h"
-#include "ir.h"
-#include "beam.h"
+#include "neopixel.h"
+#include "ir_emitter.h"
+#include "loadcell_scale.h"
+#include "ir_sensor.h"
 
 #include "esp_mac.h"
 
@@ -45,9 +46,10 @@ static bool s_cmd_version_registered = false;
 static bool s_cmd_id_registered = false;
 static bool s_cmd_pins_registered = false;
 static bool s_cmd_safe_registered = false;
-static bool s_cmd_led_registered = false;
-static bool s_cmd_ir_registered = false;
-static bool s_cmd_beam_registered = false;
+static bool s_cmd_neopixel_registered = false;
+static bool s_cmd_ir_emitter_registered = false;
+static bool s_cmd_ir_sensor_registered = false;
+static bool s_cmd_scale_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -60,9 +62,10 @@ static int cmd_version(int argc, char **argv);
 static int cmd_id(int argc, char **argv);
 static int cmd_pins(int argc, char **argv);
 static int cmd_safe(int argc, char **argv);
-static int cmd_led(int argc, char **argv);
-static int cmd_ir(int argc, char **argv);
-static int cmd_beam(int argc, char **argv);
+static int cmd_neopixel(int argc, char **argv);
+static int cmd_ir_emitter(int argc, char **argv);
+static int cmd_ir_sensor(int argc, char **argv);
+static int cmd_scale(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "[command]", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -73,15 +76,18 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "id", .usage = "Print device ID", .handler = &cmd_id, .registered = &s_cmd_id_registered},
     {.name = "pins", .usage = "Print pin map", .handler = &cmd_pins, .registered = &s_cmd_pins_registered},
     {.name = "safe", .usage = "Apply board safe state", .handler = &cmd_safe, .registered = &s_cmd_safe_registered},
-    {.name = "led", .usage = "off|r|g|b|booting|ready|fault|status", .handler = &cmd_led, .registered = &s_cmd_led_registered},
-    {.name = "ir", .usage = "on|off|status", .handler = &cmd_ir, .registered = &s_cmd_ir_registered},
-    {.name = "beam", .usage = "status", .handler = &cmd_beam, .registered = &s_cmd_beam_registered},
+    {.name = "neopixel", .usage = "off|r|g|b|booting|ready|fault|status", .handler = &cmd_neopixel, .registered = &s_cmd_neopixel_registered},
+    {.name = "ir_emitter", .usage = "on|off|status", .handler = &cmd_ir_emitter, .registered = &s_cmd_ir_emitter_registered},
+    {.name = "ir_sensor", .usage = "status", .handler = &cmd_ir_sensor, .registered = &s_cmd_ir_sensor_registered},
+    {.name = "scale", .usage = "read [n] | tare [n] | cal <known_grams> [n] | status", .handler = &cmd_scale, .registered = &s_cmd_scale_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "tail [n] | clear", .handler = &cmd_events, .registered = &s_cmd_events_registered},
     {.name = "remote", .usage = "list | exec <action> [args...] | unlock <seconds> | lock | unlock_status", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
 };
 
 #define SNAPSHOT_JSON_MAX 512
+#define SCALE_DEFAULT_SAMPLES 5
+#define SCALE_MAX_SAMPLES 64
 
 static void print_json_string(const char *value)
 {
@@ -122,7 +128,6 @@ static void events_print_record(const events_record_t *rec, void *ctx)
     printf("}\n");
 }
 
-
 static const diag_cmd_info_t *find_cmd_info(const char *name)
 {
     for (size_t i = 0; i < sizeof(k_diag_cmds) / sizeof(k_diag_cmds[0]); ++i)
@@ -143,6 +148,31 @@ static bool is_cmd_registered(const char *name)
         return false;
     }
     return *info->registered;
+}
+
+static void print_err_json(const char *err)
+{
+    if (err == NULL || err[0] == '\0')
+    {
+        err = "error";
+    }
+    printf("ERR {\"err\":\"%s\"}\n", err);
+}
+
+static bool parse_samples_arg(const char *arg, int *samples)
+{
+    if (samples == NULL || arg == NULL)
+    {
+        return false;
+    }
+    char *end = NULL;
+    long val = strtol(arg, &end, 10);
+    if (end == arg || *end != '\0' || val <= 0 || val > SCALE_MAX_SAMPLES)
+    {
+        return false;
+    }
+    *samples = (int)val;
+    return true;
 }
 
 static int cmd_help(int argc, char **argv)
@@ -233,14 +263,16 @@ static int cmd_pins(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    printf("{\"neopixel_onboard\":%d,\"ir_emitter\":%d,\"beam_input\":%d,"
-           "\"hx711_sck\":%d,\"hx711_dout\":%d,"
-           "\"tmc_step\":%d,\"tmc_dir\":%d,\"tmc_en\":%d,\"tmc_diag\":%d,"
-           "\"tmc_uart_tx\":%d,\"tmc_uart_rx\":%d}\n",
-           PIN_NEOPIXEL_ONBOARD, PIN_IR_EMITTER, PIN_BEAM_INPUT,
-           PIN_HX711_SCK, PIN_HX711_DOUT,
-           PIN_TMC_STEP, PIN_TMC_DIR, PIN_TMC_EN, PIN_TMC_DIAG,
-           PIN_TMC_UART_TX, PIN_TMC_UART_RX);
+    printf("{\"neopixel_onboard\":%d,\"ir_emitter\":%d,\"ir_sensor_input\":%d,"
+           "\"loadcell_adc_sck\":%d,\"loadcell_adc_dout\":%d,"
+           "\"stepper_driver_step\":%d,\"stepper_driver_dir\":%d,"
+           "\"stepper_driver_en\":%d,\"stepper_driver_diag\":%d,"
+           "\"stepper_driver_uart_tx\":%d,\"stepper_driver_uart_rx\":%d}\n",
+           PIN_NEOPIXEL_ONBOARD, PIN_IR_EMITTER, PIN_IR_SENSOR_INPUT,
+           PIN_LOADCELL_ADC_SCK, PIN_LOADCELL_ADC_DOUT,
+           PIN_STEPPER_DRIVER_STEP, PIN_STEPPER_DRIVER_DIR,
+           PIN_STEPPER_DRIVER_EN, PIN_STEPPER_DRIVER_DIAG,
+           PIN_STEPPER_DRIVER_UART_TX, PIN_STEPPER_DRIVER_UART_RX);
     return 0;
 }
 
@@ -253,7 +285,7 @@ static int cmd_safe(int argc, char **argv)
     return 0;
 }
 
-static int cmd_led(int argc, char **argv)
+static int cmd_neopixel(int argc, char **argv)
 {
     if (argc != 2)
     {
@@ -263,9 +295,9 @@ static int cmd_led(int argc, char **argv)
     if (strcmp(argv[1], "status") == 0)
     {
         char buf[96];
-        if (!led_get_status_json(buf, sizeof(buf)))
+        if (!neopixel_get_status_json(buf, sizeof(buf)))
         {
-            printf("ERR led\n");
+            printf("ERR neopixel\n");
             return 0;
         }
         printf("%s\n", buf);
@@ -273,43 +305,43 @@ static int cmd_led(int argc, char **argv)
     }
     if (strcmp(argv[1], "off") == 0)
     {
-        led_set_mode(LED_MODE_OFF);
+        neopixel_set_mode(NEOPIXEL_MODE_OFF);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "r") == 0)
     {
-        led_set_rgb(255, 0, 0);
+        neopixel_set_rgb(255, 0, 0);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "g") == 0)
     {
-        led_set_rgb(0, 255, 0);
+        neopixel_set_rgb(0, 255, 0);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "b") == 0)
     {
-        led_set_rgb(0, 0, 255);
+        neopixel_set_rgb(0, 0, 255);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "booting") == 0)
     {
-        led_set_mode(LED_MODE_BOOTING);
+        neopixel_set_mode(NEOPIXEL_MODE_BOOTING);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "ready") == 0)
     {
-        led_set_mode(LED_MODE_READY);
+        neopixel_set_mode(NEOPIXEL_MODE_READY);
         printf("OK\n");
         return 0;
     }
     if (strcmp(argv[1], "fault") == 0)
     {
-        led_set_mode(LED_MODE_FAULT);
+        neopixel_set_mode(NEOPIXEL_MODE_FAULT);
         printf("OK\n");
         return 0;
     }
@@ -317,7 +349,7 @@ static int cmd_led(int argc, char **argv)
     return 0;
 }
 
-static int cmd_ir(int argc, char **argv)
+static int cmd_ir_emitter(int argc, char **argv)
 {
     if (argc != 2)
     {
@@ -327,9 +359,9 @@ static int cmd_ir(int argc, char **argv)
     if (strcmp(argv[1], "status") == 0)
     {
         char buf[32];
-        if (!ir_get_status_json(buf, sizeof(buf)))
+        if (!ir_emitter_get_status_json(buf, sizeof(buf)))
         {
-            printf("ERR ir\n");
+            printf("ERR ir_emitter\n");
             return 0;
         }
         printf("%s\n", buf);
@@ -337,9 +369,9 @@ static int cmd_ir(int argc, char **argv)
     }
     if (strcmp(argv[1], "on") == 0)
     {
-        if (!ir_set(true))
+        if (!ir_emitter_set(true))
         {
-            printf("ERR ir\n");
+            printf("ERR ir_emitter\n");
             return 0;
         }
         printf("OK\n");
@@ -347,9 +379,9 @@ static int cmd_ir(int argc, char **argv)
     }
     if (strcmp(argv[1], "off") == 0)
     {
-        if (!ir_set(false))
+        if (!ir_emitter_set(false))
         {
-            printf("ERR ir\n");
+            printf("ERR ir_emitter\n");
             return 0;
         }
         printf("OK\n");
@@ -359,22 +391,155 @@ static int cmd_ir(int argc, char **argv)
     return 0;
 }
 
-static int cmd_beam(int argc, char **argv)
+static int cmd_ir_sensor(int argc, char **argv)
 {
-    if (argc != 1)
+    if (argc == 2)
+    {
+        if (strcmp(argv[1], "status") != 0)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+    }
+    else if (argc != 1)
     {
         printf("ERR invalid_args\n");
         return 0;
     }
     char buf[32];
-    if (!beam_get_status_json(buf, sizeof(buf)))
+    if (!ir_sensor_get_status_json(buf, sizeof(buf)))
     {
-        printf("ERR beam\n");
+        printf("ERR ir_sensor\n");
         return 0;
     }
     printf("%s\n", buf);
     return 0;
 }
+
+static int cmd_scale(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        print_err_json("invalid_args");
+        return 0;
+    }
+    if (strcmp(argv[1], "read") == 0)
+    {
+        int samples = SCALE_DEFAULT_SAMPLES;
+        if (argc == 3)
+        {
+            if (!parse_samples_arg(argv[2], &samples))
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+        }
+        else if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        int32_t raw = 0;
+        esp_err_t err = loadcell_scale_read_raw(samples, &raw);
+        if (err != ESP_OK)
+        {
+            print_err_json("no_data");
+            return 0;
+        }
+        bool calibrated = loadcell_scale_is_calibrated();
+        char grams_buf[32];
+        const char *grams_str = "null";
+        if (calibrated)
+        {
+            float grams = 0.0f;
+            if (loadcell_scale_raw_to_grams(raw, &grams) == ESP_OK)
+            {
+                snprintf(grams_buf, sizeof(grams_buf), "%.3f", (double)grams);
+                grams_str = grams_buf;
+            }
+            else
+            {
+                calibrated = false;
+            }
+        }
+        printf("{\"raw\":%ld,\"grams\":%s,\"samples\":%d,\"calibrated\":%s}\n",
+               (long)raw, grams_str, samples, calibrated ? "true" : "false");
+        return 0;
+    }
+    if (strcmp(argv[1], "tare") == 0)
+    {
+        int samples = SCALE_DEFAULT_SAMPLES;
+        if (argc == 3)
+        {
+            if (!parse_samples_arg(argv[2], &samples))
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+        }
+        else if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = loadcell_scale_tare(samples);
+        if (err != ESP_OK)
+        {
+            print_err_json(err == ESP_ERR_INVALID_ARG ? "invalid_args" : "no_data");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "cal") == 0)
+    {
+        if (argc < 3 || argc > 4)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        char *end = NULL;
+        float known_grams = strtof(argv[2], &end);
+        if (end == argv[2] || *end != '\0' || !(known_grams > 0.0f))
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        int samples = SCALE_DEFAULT_SAMPLES;
+        if (argc == 4 && !parse_samples_arg(argv[3], &samples))
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = loadcell_scale_calibrate(samples, known_grams);
+        if (err != ESP_OK)
+        {
+            print_err_json(err == ESP_ERR_INVALID_ARG ? "invalid_args" : "no_data");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        char buf[160];
+        if (!loadcell_scale_get_status_json(buf, sizeof(buf)))
+        {
+            print_err_json("internal");
+            return 0;
+        }
+        printf("%s\n", buf);
+        return 0;
+    }
+    print_err_json("invalid_args");
+    return 0;
+}
+
 static int cmd_reboot(int argc, char **argv)
 {
     (void)argc;
@@ -522,7 +687,15 @@ static int cmd_remote(int argc, char **argv)
             {
                 printf(",");
             }
-            print_json_string(names[i]);
+            const char *name = names[i];
+            if (strcmp(name, "neopixel_set") == 0)
+            {
+                print_json_string("neopixel_set off|r|g|b");
+            }
+            else
+            {
+                print_json_string(name);
+            }
         }
         printf("]}\n");
         return 0;
@@ -680,7 +853,7 @@ void diag_console_start(void)
     printf("\nFW0002 diagnostic console\n");
     printf("Type 'help' to list commands.\n\n");
 
-    led_set_mode(LED_MODE_READY);
+    neopixel_set_mode(NEOPIXEL_MODE_READY);
     while (true)
     {
         char *line = linenoise("fw0002> ");
@@ -711,3 +884,4 @@ void diag_console_start(void)
         linenoiseFree(line);
     }
 }
+
