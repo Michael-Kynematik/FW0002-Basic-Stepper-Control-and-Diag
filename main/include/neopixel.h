@@ -16,4 +16,6 @@ typedef enum
 bool neopixel_init(void);
 bool neopixel_set_mode(neopixel_mode_t mode);
 bool neopixel_set_rgb(uint8_t r, uint8_t g, uint8_t b);
+bool neopixel_set_brightness(uint8_t brightness);
+uint8_t neopixel_get_brightness(void);
 bool neopixel_get_status_json(char *buf, size_t len);

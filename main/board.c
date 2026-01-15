@@ -1,6 +1,7 @@
 #include "board.h"
 
 #include "events.h"
+#include "motor.h"
 
 static bool s_safe_state = false;
 
@@ -14,6 +15,7 @@ void board_init_safe(void)
 void board_safe(void)
 {
     // TODO: drive actual GPIOs to safe defaults once wired.
+    motor_disable();
     s_safe_state = true;
     events_emit("safe_state", "board", 0, "applied");
 }

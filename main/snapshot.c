@@ -9,6 +9,7 @@
 #include "fw_version.h"
 #include "board.h"
 #include "loadcell_scale.h"
+#include "motor.h"
 
 #define SNAPSHOT_MAX_FIELDS 16
 
@@ -225,6 +226,19 @@ static bool snapshot_field_scale(char *buf, size_t len, size_t *used)
     return snapshot_append_raw(buf, len, used, scale_json);
 }
 
+static bool snapshot_field_motor(char *buf, size_t len, size_t *used)
+{
+    char motor_json[192];
+    if (!motor_get_status_json(motor_json, sizeof(motor_json)))
+    {
+        return snapshot_append_raw(buf, len, used,
+                                   "{\"state\":\"disabled\",\"enabled\":false,"
+                                   "\"step_hz\":0,\"dir\":\"CW\","
+                                   "\"fault_code\":0,\"fault_reason\":\"none\"}");
+    }
+    return snapshot_append_raw(buf, len, used, motor_json);
+}
+
 static bool snapshot_register_defaults(void)
 {
     if (s_defaults_registered)
@@ -241,7 +255,8 @@ static bool snapshot_register_defaults(void)
         !snapshot_register_field("device_id", snapshot_field_device_id) ||
         !snapshot_register_field("hw_rev", snapshot_field_hw_rev) ||
         !snapshot_register_field("board_safe", snapshot_field_board_safe) ||
-        !snapshot_register_field("scale", snapshot_field_scale))
+        !snapshot_register_field("scale", snapshot_field_scale) ||
+        !snapshot_register_field("motor", snapshot_field_motor))
     {
         return false;
     }

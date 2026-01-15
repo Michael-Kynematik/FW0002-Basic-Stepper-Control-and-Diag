@@ -2,6 +2,7 @@
 #include "diag_console.h"
 #include "events.h"
 #include "board.h"
+#include "motor.h"
 #include "neopixel.h"
 #include "ir_emitter.h"
 #include "ir_sensor.h"
@@ -46,6 +47,7 @@ void app_main(void)
     events_init();
     events_emit("boot_reset", "system", (int)esp_reset_reason(), reset_reason_to_str(esp_reset_reason()));
     board_init_safe();
+    motor_init();
     neopixel_init();
     ir_emitter_init();
     ir_sensor_init();

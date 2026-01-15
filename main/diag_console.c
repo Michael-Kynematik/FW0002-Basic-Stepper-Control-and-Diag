@@ -20,6 +20,7 @@
 #include "remote_actions.h"
 #include "fw_version.h"
 #include "board.h"
+#include "motor.h"
 #include "neopixel.h"
 #include "ir_emitter.h"
 #include "loadcell_scale.h"
@@ -50,6 +51,7 @@ static bool s_cmd_neopixel_registered = false;
 static bool s_cmd_ir_emitter_registered = false;
 static bool s_cmd_ir_sensor_registered = false;
 static bool s_cmd_scale_registered = false;
+static bool s_cmd_motor_registered = false;
 
 static int cmd_help(int argc, char **argv);
 static int cmd_uptime(int argc, char **argv);
@@ -66,6 +68,7 @@ static int cmd_neopixel(int argc, char **argv);
 static int cmd_ir_emitter(int argc, char **argv);
 static int cmd_ir_sensor(int argc, char **argv);
 static int cmd_scale(int argc, char **argv);
+static int cmd_motor(int argc, char **argv);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "[command]", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -76,10 +79,11 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "id", .usage = "Print device ID", .handler = &cmd_id, .registered = &s_cmd_id_registered},
     {.name = "pins", .usage = "Print pin map", .handler = &cmd_pins, .registered = &s_cmd_pins_registered},
     {.name = "safe", .usage = "Apply board safe state", .handler = &cmd_safe, .registered = &s_cmd_safe_registered},
-    {.name = "neopixel", .usage = "off|r|g|b|booting|ready|fault|status", .handler = &cmd_neopixel, .registered = &s_cmd_neopixel_registered},
+    {.name = "neopixel", .usage = "off|r|g|b|booting|ready|fault|status|bright <0-255>", .handler = &cmd_neopixel, .registered = &s_cmd_neopixel_registered},
     {.name = "ir_emitter", .usage = "on|off|status", .handler = &cmd_ir_emitter, .registered = &s_cmd_ir_emitter_registered},
     {.name = "ir_sensor", .usage = "status", .handler = &cmd_ir_sensor, .registered = &s_cmd_ir_sensor_registered},
     {.name = "scale", .usage = "read [n] | tare [n] | cal <known_grams> [n] | status", .handler = &cmd_scale, .registered = &s_cmd_scale_registered},
+    {.name = "motor", .usage = "enable|disable|dir CW|CCW|speed <hz 50-5000>|start|stop|status|clearfaults", .handler = &cmd_motor, .registered = &s_cmd_motor_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "tail [n] | clear", .handler = &cmd_events, .registered = &s_cmd_events_registered},
     {.name = "remote", .usage = "list | exec <action> [args...] | unlock <seconds> | lock | unlock_status", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
@@ -287,20 +291,48 @@ static int cmd_safe(int argc, char **argv)
 
 static int cmd_neopixel(int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc < 2 || argc > 3)
     {
         printf("ERR invalid_args\n");
         return 0;
     }
     if (strcmp(argv[1], "status") == 0)
     {
-        char buf[96];
+        if (argc != 2)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        char buf[128];
         if (!neopixel_get_status_json(buf, sizeof(buf)))
         {
             printf("ERR neopixel\n");
             return 0;
         }
         printf("%s\n", buf);
+        return 0;
+    }
+    if (strcmp(argv[1], "bright") == 0)
+    {
+        if (argc != 3)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        char *end = NULL;
+        long val = strtol(argv[2], &end, 10);
+        if (end == argv[2] || *end != '\0' || val < 0 || val > 255)
+        {
+            printf("ERR invalid_args\n");
+            return 0;
+        }
+        neopixel_set_brightness((uint8_t)val);
+        printf("OK\n");
+        return 0;
+    }
+    if (argc != 2)
+    {
+        printf("ERR invalid_args\n");
         return 0;
     }
     if (strcmp(argv[1], "off") == 0)
@@ -534,6 +566,166 @@ static int cmd_scale(int argc, char **argv)
             return 0;
         }
         printf("%s\n", buf);
+        return 0;
+    }
+    print_err_json("invalid_args");
+    return 0;
+}
+
+static int cmd_motor(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        print_err_json("invalid_args");
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        char buf[192];
+        if (!motor_get_status_json(buf, sizeof(buf)))
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("%s\n", buf);
+        return 0;
+    }
+    if (strcmp(argv[1], "enable") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_enable();
+        if (err != ESP_OK)
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "disable") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_disable();
+        if (err != ESP_OK)
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "dir") == 0)
+    {
+        if (argc != 3)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        motor_dir_t dir = MOTOR_DIR_FWD;
+        if (strcmp(argv[2], "CW") == 0)
+        {
+            dir = MOTOR_DIR_FWD;
+        }
+        else if (strcmp(argv[2], "CCW") == 0)
+        {
+            dir = MOTOR_DIR_REV;
+        }
+        else
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_set_dir(dir);
+        if (err != ESP_OK)
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "speed") == 0)
+    {
+        if (argc != 3)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        char *end = NULL;
+        long hz = strtol(argv[2], &end, 10);
+        if (end == argv[2] || *end != '\0' || hz < MOTOR_MIN_HZ || hz > MOTOR_MAX_HZ)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_set_speed_hz((uint32_t)hz);
+        if (err != ESP_OK)
+        {
+            print_err_json(err == ESP_ERR_INVALID_ARG ? "invalid_args" : "motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "start") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_start();
+        if (err != ESP_OK)
+        {
+            print_err_json(err == ESP_ERR_INVALID_STATE ? "not_enabled" : "motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "stop") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_stop();
+        if (err != ESP_OK)
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("OK\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "clearfaults") == 0)
+    {
+        if (argc != 2)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        esp_err_t err = motor_clear_faults();
+        if (err != ESP_OK)
+        {
+            print_err_json("motor");
+            return 0;
+        }
+        printf("OK\n");
         return 0;
     }
     print_err_json("invalid_args");
