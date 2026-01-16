@@ -5,6 +5,7 @@
 
 #include "board.h"
 #include "events.h"
+#include "stepper_driver_uart.h"
 #include "esp_attr.h"
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
@@ -154,6 +155,7 @@ esp_err_t motor_init(void)
     s_state = MOTOR_STATE_DISABLED;
     s_fault_code = 0;
     snprintf(s_fault_reason, sizeof(s_fault_reason), "none");
+    stepper_driver_uart_init();
     return ESP_OK;
 }
 
