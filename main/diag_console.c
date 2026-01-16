@@ -21,6 +21,7 @@
 #include "fw_version.h"
 #include "board.h"
 #include "motor.h"
+#include "stepper_driver_uart.h"
 #include "neopixel.h"
 #include "ir_emitter.h"
 #include "loadcell_scale.h"
@@ -83,7 +84,7 @@ static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "ir_emitter", .usage = "on|off|status", .handler = &cmd_ir_emitter, .registered = &s_cmd_ir_emitter_registered},
     {.name = "ir_sensor", .usage = "status", .handler = &cmd_ir_sensor, .registered = &s_cmd_ir_sensor_registered},
     {.name = "scale", .usage = "read [n] | tare [n] | cal <known_grams> [n] | status", .handler = &cmd_scale, .registered = &s_cmd_scale_registered},
-    {.name = "motor", .usage = "enable|disable|dir CW|CCW|speed <hz 50-5000>|start|stop|status|clearfaults", .handler = &cmd_motor, .registered = &s_cmd_motor_registered},
+    {.name = "motor", .usage = "enable|disable|dir CW|CCW|speed <hz 50-5000>|start|stop|status|clearfaults|driver ...", .handler = &cmd_motor, .registered = &s_cmd_motor_registered},
     {.name = "selftest", .usage = "Verify required commands and snapshot format", .handler = &cmd_selftest, .registered = &s_cmd_selftest_registered},
     {.name = "events", .usage = "tail [n] | clear", .handler = &cmd_events, .registered = &s_cmd_events_registered},
     {.name = "remote", .usage = "list | exec <action> [args...] | unlock <seconds> | lock | unlock_status", .handler = &cmd_remote, .registered = &s_cmd_remote_registered},
@@ -199,6 +200,11 @@ static int cmd_help(int argc, char **argv)
             return 0;
         }
         printf("%s %s\n", info->name, info->usage);
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "motor") == 0 && strcmp(argv[2], "driver") == 0)
+    {
+        printf("motor driver ping | ifcnt | stealthchop on|off | microsteps <1|2|4|8|16|32|64|128|256> | current run <0-31> hold <0-31> [hold_delay <0-15>] | status | clearfaults\n");
         return 0;
     }
     printf("ERR invalid_args\n");
@@ -576,6 +582,196 @@ static int cmd_motor(int argc, char **argv)
 {
     if (argc < 2)
     {
+        print_err_json("invalid_args");
+        return 0;
+    }
+    if (strcmp(argv[1], "driver") == 0)
+    {
+        if (argc < 3)
+        {
+            print_err_json("invalid_args");
+            return 0;
+        }
+        const char *sub = argv[2];
+        if (strcmp(sub, "ping") == 0)
+        {
+            if (argc != 3)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            esp_err_t err = stepper_driver_ping();
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("OK\n");
+            return 0;
+        }
+        if (strcmp(sub, "ifcnt") == 0)
+        {
+            if (argc != 3)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            uint8_t ifcnt = 0;
+            esp_err_t err = stepper_driver_read_ifcnt(&ifcnt);
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("{\"ifcnt\":%u}\n", (unsigned)ifcnt);
+            return 0;
+        }
+        if (strcmp(sub, "stealthchop") == 0)
+        {
+            if (argc != 4)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            bool enable = false;
+            if (strcmp(argv[3], "on") == 0)
+            {
+                enable = true;
+            }
+            else if (strcmp(argv[3], "off") == 0)
+            {
+                enable = false;
+            }
+            else
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            esp_err_t err = stepper_driver_set_stealthchop(enable);
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("OK\n");
+            return 0;
+        }
+        if (strcmp(sub, "microsteps") == 0)
+        {
+            if (argc != 4)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            char *end = NULL;
+            long micro = strtol(argv[3], &end, 10);
+            if (end == argv[3] || *end != '\0')
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            esp_err_t err = stepper_driver_set_microsteps((uint16_t)micro);
+            if (err == ESP_ERR_INVALID_ARG)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("OK\n");
+            return 0;
+        }
+        if (strcmp(sub, "current") == 0)
+        {
+            if (argc < 7 || argc > 9)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            if (strcmp(argv[3], "run") != 0 || strcmp(argv[5], "hold") != 0)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            char *end = NULL;
+            long run = strtol(argv[4], &end, 10);
+            if (end == argv[4] || *end != '\0')
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            end = NULL;
+            long hold = strtol(argv[6], &end, 10);
+            if (end == argv[6] || *end != '\0')
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            long hold_delay = 0;
+            if (argc == 9)
+            {
+                if (strcmp(argv[7], "hold_delay") != 0)
+                {
+                    print_err_json("invalid_args");
+                    return 0;
+                }
+                end = NULL;
+                hold_delay = strtol(argv[8], &end, 10);
+                if (end == argv[8] || *end != '\0')
+                {
+                    print_err_json("invalid_args");
+                    return 0;
+                }
+            }
+            esp_err_t err = stepper_driver_set_current((uint8_t)run, (uint8_t)hold, (uint8_t)hold_delay);
+            if (err == ESP_ERR_INVALID_ARG)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("OK\n");
+            return 0;
+        }
+        if (strcmp(sub, "status") == 0)
+        {
+            if (argc != 3)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            char buf[256];
+            if (!stepper_driver_get_status_json(buf, sizeof(buf)))
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("%s\n", buf);
+            return 0;
+        }
+        if (strcmp(sub, "clearfaults") == 0)
+        {
+            if (argc != 3)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            esp_err_t err = stepper_driver_clear_faults();
+            if (err != ESP_OK)
+            {
+                print_err_json("uart_no_response");
+                return 0;
+            }
+            printf("OK\n");
+            return 0;
+        }
         print_err_json("invalid_args");
         return 0;
     }
