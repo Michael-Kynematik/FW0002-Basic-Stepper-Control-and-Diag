@@ -2,6 +2,7 @@
 #include "diag_console.h"
 #include "events.h"
 #include "board.h"
+#include "fw_version.h"
 #include "motor.h"
 #include "neopixel.h"
 #include "ir_emitter.h"
@@ -43,7 +44,7 @@ static const char *reset_reason_to_str(esp_reset_reason_t r)
 
 void app_main(void)
 {
-    printf("\nFW0002 boot\n");
+    printf("\nFW0002 boot v%s (%s)\n", FW_VERSION, FW_BUILD);
     events_init();
     events_emit("boot_reset", "system", (int)esp_reset_reason(), reset_reason_to_str(esp_reset_reason()));
     board_init_safe();

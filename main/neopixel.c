@@ -15,7 +15,7 @@ static neopixel_mode_t s_mode = NEOPIXEL_MODE_OFF;
 static uint8_t s_r = 0;
 static uint8_t s_g = 0;
 static uint8_t s_b = 0;
-static uint8_t s_brightness = 32;
+static uint8_t s_brightness = 16;
 
 static const char *neopixel_mode_to_str(neopixel_mode_t mode)
 {
@@ -74,7 +74,7 @@ bool neopixel_init(void)
     s_r = 0;
     s_g = 0;
     s_b = 0;
-    s_brightness = 32;
+    s_brightness = 16;
     neopixel_apply_rgb();
     return s_strip_ready;
 }
