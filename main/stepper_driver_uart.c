@@ -31,6 +31,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "board.h"
 #include "esp_log.h"
@@ -51,11 +52,8 @@ static const char *TAG = "stepper_uart";
 #define TMC_SYNC 0x05
 #define TMC_SLAVE_ADDR 0x00
 
-#define TMC_REG_GCONF 0x00
 #define TMC_REG_GSTAT 0x01
-#define TMC_REG_IFCNT 0x02
 #define TMC_REG_IHOLD_IRUN 0x10
-#define TMC_REG_CHOPCONF 0x6C
 #define TMC_REG_DRV_STATUS 0x6F
 
 #define TMC_GCONF_EN_SPREADCYCLE (1U << 2)
@@ -68,6 +66,7 @@ static uint8_t s_hold_current = 0;
 static uint8_t s_hold_delay = 0;
 static bool s_stealthchop = true;
 
+#if STEPPER_UART_DEBUG
 static void format_hex_bytes(const uint8_t *data, size_t len, char *out, size_t out_len)
 {
     if (out == NULL || out_len == 0)
@@ -90,6 +89,7 @@ static void format_hex_bytes(const uint8_t *data, size_t len, char *out, size_t 
         used += (size_t)written;
     }
 }
+#endif
 
 static uint8_t tmc_crc(const uint8_t *data, size_t len)
 {
@@ -113,12 +113,26 @@ static uint8_t tmc_crc(const uint8_t *data, size_t len)
     return crc;
 }
 
+static void tmc_uart_drain_rx(void)
+{
+    uint8_t junk[32];
+    while (true)
+    {
+        int read = uart_read_bytes(STEPPER_UART, junk, sizeof(junk), 0);
+        if (read <= 0)
+        {
+            break;
+        }
+    }
+}
+
 static esp_err_t tmc_uart_write(const uint8_t *data, size_t len)
 {
     if (!s_uart_ready)
     {
         return ESP_ERR_INVALID_STATE;
     }
+    uart_flush_input(STEPPER_UART);
     int written = uart_write_bytes(STEPPER_UART, data, len);
     if (written != (int)len)
     {
@@ -143,12 +157,13 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     }
     uart_wait_tx_done(STEPPER_UART, pdMS_TO_TICKS(20));
     vTaskDelay(pdMS_TO_TICKS(2));
-    if (STEPPER_UART_DEBUG)
+#if STEPPER_UART_DEBUG
     {
         char tx_hex[32];
         format_hex_bytes(req, sizeof(req), tx_hex, sizeof(tx_hex));
         ESP_LOGI(TAG, "tx len=%u data=%s", (unsigned)sizeof(req), tx_hex);
     }
+#endif
 
     // RX can be 8-byte reply-only, or 12-byte (4-byte echo + 8-byte reply).
     uint8_t rx[12] = {0};
@@ -158,12 +173,14 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     TickType_t start_ticks = xTaskGetTickCount();
     int read = uart_read_bytes(STEPPER_UART, rx, sizeof(rx), timeout_ticks);
     size_t rx_len = (read > 0) ? (size_t)read : 0;
-    if (STEPPER_UART_DEBUG && rx_len > 0)
+#if STEPPER_UART_DEBUG
+    if (rx_len > 0)
     {
         char rx_hex[48];
         format_hex_bytes(rx, rx_len, rx_hex, sizeof(rx_hex));
         ESP_LOGI(TAG, "rx len=%d timeout_ticks=%u data=%s", read, (unsigned)timeout_ticks, rx_hex);
     }
+#endif
     size_t total = rx_len;
     while (total < sizeof(rx))
     {
@@ -178,12 +195,14 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
             total += (size_t)more;
         }
     }
-    if (STEPPER_UART_DEBUG && total > 0)
+#if STEPPER_UART_DEBUG
+    if (total > 0)
     {
         char total_hex[48];
         format_hex_bytes(rx, total, total_hex, sizeof(total_hex));
         ESP_LOGI(TAG, "rx total=%u deadline_ms=50 data=%s", (unsigned)total, total_hex);
     }
+#endif
     if (total < 8)
     {
         ESP_LOGE(TAG, "rx_len=%u", (unsigned)total);
@@ -214,8 +233,11 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
         ESP_LOGE(TAG, "reg_mismatch");
         return ESP_ERR_INVALID_RESPONSE;
     }
+#if STEPPER_UART_DEBUG
     ESP_LOGI(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
              resp[2], resp[3], resp[4], resp[5], resp[6]);
+#endif
+    tmc_uart_drain_rx();
     *out = ((uint32_t)resp[3] << 24) |
            ((uint32_t)resp[4] << 16) |
            ((uint32_t)resp[5] << 8) |
@@ -226,6 +248,34 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
 static esp_err_t tmc_read_reg(uint8_t reg, uint32_t *out)
 {
     return tmc_read_reg_addr(TMC_SLAVE_ADDR, reg, out, true);
+}
+
+esp_err_t stepper_uart_read_reg(uint8_t slave, uint8_t reg, uint32_t *out)
+{
+    return tmc_read_reg_addr(slave, reg, out, false);
+}
+
+static esp_err_t tmc_write_reg_addr(uint8_t addr, uint8_t reg, uint32_t value)
+{
+    uint8_t req[8] = {
+        TMC_SYNC,
+        addr,
+        (uint8_t)(reg | 0x80),
+        (uint8_t)((value >> 24) & 0xFF),
+        (uint8_t)((value >> 16) & 0xFF),
+        (uint8_t)((value >> 8) & 0xFF),
+        (uint8_t)(value & 0xFF),
+        0};
+    req[7] = tmc_crc(req, 7);
+    esp_err_t err = tmc_uart_write(req, sizeof(req));
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uart_wait_tx_done(STEPPER_UART, pdMS_TO_TICKS(20));
+    vTaskDelay(pdMS_TO_TICKS(2));
+    tmc_uart_drain_rx();
+    return ESP_OK;
 }
 
 static void tmc_log_addr_scan(uint8_t reg)
@@ -246,19 +296,65 @@ static void tmc_log_addr_scan(uint8_t reg)
     }
 }
 
+esp_err_t stepper_uart_write_reg(uint8_t slave, uint8_t reg, uint32_t val)
+{
+    esp_err_t err = tmc_write_reg_addr(slave, reg, val);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uint32_t verify = 0;
+    err = tmc_read_reg_addr(slave, reg, &verify, false);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    return ESP_OK;
+}
+
+esp_err_t stepper_uart_ensure_gconf_uart_mode(uint8_t slave)
+{
+    uint32_t gconf = 0;
+    esp_err_t err = stepper_uart_read_reg(slave, STEPPER_TMC_REG_GCONF, &gconf);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uint32_t new_gconf = gconf | STEPPER_TMC_GCONF_PDN_DISABLE | STEPPER_TMC_GCONF_MSTEP_REG_SELECT;
+    new_gconf &= ~STEPPER_TMC_GCONF_I_SCALE_ANALOG;
+    if (new_gconf != gconf)
+    {
+        err = stepper_uart_write_reg(slave, STEPPER_TMC_REG_GCONF, new_gconf);
+        if (err != ESP_OK)
+        {
+            return err;
+        }
+    }
+    uint32_t verify = 0;
+    err = stepper_uart_read_reg(slave, STEPPER_TMC_REG_GCONF, &verify);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+#if STEPPER_UART_DEBUG
+    ESP_LOGI(TAG, "gconf_before=0x%08" PRIX32 " gconf_after=0x%08" PRIX32, gconf, verify);
+    ESP_LOGI(TAG, "gconf bits i_scale_analog=%s pdn_disable=%s mstep_reg_select=%s",
+             (verify & STEPPER_TMC_GCONF_I_SCALE_ANALOG) ? "true" : "false",
+             (verify & STEPPER_TMC_GCONF_PDN_DISABLE) ? "true" : "false",
+             (verify & STEPPER_TMC_GCONF_MSTEP_REG_SELECT) ? "true" : "false");
+#endif
+    if ((verify & (STEPPER_TMC_GCONF_PDN_DISABLE | STEPPER_TMC_GCONF_MSTEP_REG_SELECT)) !=
+        (STEPPER_TMC_GCONF_PDN_DISABLE | STEPPER_TMC_GCONF_MSTEP_REG_SELECT) ||
+        (verify & STEPPER_TMC_GCONF_I_SCALE_ANALOG) != 0)
+    {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
 static esp_err_t tmc_write_reg(uint8_t reg, uint32_t value)
 {
-    uint8_t req[8] = {
-        TMC_SYNC,
-        TMC_SLAVE_ADDR,
-        (uint8_t)(reg | 0x80),
-        (uint8_t)((value >> 24) & 0xFF),
-        (uint8_t)((value >> 16) & 0xFF),
-        (uint8_t)((value >> 8) & 0xFF),
-        (uint8_t)(value & 0xFF),
-        0};
-    req[7] = tmc_crc(req, 7);
-    return tmc_uart_write(req, sizeof(req));
+    return tmc_write_reg_addr(TMC_SLAVE_ADDR, reg, value);
 }
 
 static bool mres_from_microsteps(uint16_t microsteps, uint8_t *out)
@@ -280,19 +376,11 @@ static bool mres_from_microsteps(uint16_t microsteps, uint8_t *out)
 
 static uint16_t microsteps_from_mres(uint8_t mres)
 {
-    switch (mres)
+    if (mres > 8)
     {
-    case 0: return 256;
-    case 1: return 128;
-    case 2: return 64;
-    case 3: return 32;
-    case 4: return 16;
-    case 5: return 8;
-    case 6: return 4;
-    case 7: return 2;
-    case 8: return 1;
-    default: return 0;
+        return 0;
     }
+    return (uint16_t)(256U >> mres);
 }
 
 esp_err_t stepper_driver_uart_init(void)
@@ -354,7 +442,7 @@ esp_err_t stepper_driver_uart_init(void)
 esp_err_t stepper_driver_read_ifcnt(uint8_t *out)
 {
     uint32_t val = 0;
-    esp_err_t err = tmc_read_reg(TMC_REG_IFCNT, &val);
+    esp_err_t err = tmc_read_reg(STEPPER_TMC_REG_IFCNT, &val);
     if (err != ESP_OK)
     {
         return err;
@@ -379,14 +467,14 @@ esp_err_t stepper_driver_ping(void)
         events_emit("driver_uart", "motor", 0, "ok");
         return ESP_OK;
     }
-    tmc_log_addr_scan(TMC_REG_IFCNT);
+    tmc_log_addr_scan(STEPPER_TMC_REG_IFCNT);
     return ESP_ERR_TIMEOUT;
 }
 
 esp_err_t stepper_driver_set_stealthchop(bool enable)
 {
     uint32_t gconf = 0;
-    esp_err_t err = tmc_read_reg(TMC_REG_GCONF, &gconf);
+    esp_err_t err = tmc_read_reg(STEPPER_TMC_REG_GCONF, &gconf);
     if (err != ESP_OK)
     {
         return err;
@@ -399,7 +487,7 @@ esp_err_t stepper_driver_set_stealthchop(bool enable)
     {
         gconf |= TMC_GCONF_EN_SPREADCYCLE;
     }
-    err = tmc_write_reg(TMC_REG_GCONF, gconf);
+    err = tmc_write_reg(STEPPER_TMC_REG_GCONF, gconf);
     if (err != ESP_OK)
     {
         return err;
@@ -417,17 +505,33 @@ esp_err_t stepper_driver_set_microsteps(uint16_t microsteps)
         return ESP_ERR_INVALID_ARG;
     }
     uint32_t chopconf = 0;
-    esp_err_t err = tmc_read_reg(TMC_REG_CHOPCONF, &chopconf);
+    esp_err_t err = stepper_uart_ensure_gconf_uart_mode(TMC_SLAVE_ADDR);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    err = stepper_uart_read_reg(TMC_SLAVE_ADDR, STEPPER_TMC_REG_CHOPCONF, &chopconf);
     if (err != ESP_OK)
     {
         return err;
     }
     chopconf &= ~(0x0F << 24);
     chopconf |= ((uint32_t)mres << 24);
-    err = tmc_write_reg(TMC_REG_CHOPCONF, chopconf);
+    err = stepper_uart_write_reg(TMC_SLAVE_ADDR, STEPPER_TMC_REG_CHOPCONF, chopconf);
     if (err != ESP_OK)
     {
         return err;
+    }
+    uint32_t verify = 0;
+    err = stepper_uart_read_reg(TMC_SLAVE_ADDR, STEPPER_TMC_REG_CHOPCONF, &verify);
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uint8_t verify_mres = (uint8_t)((verify >> 24) & 0x0F);
+    if (verify_mres != mres)
+    {
+        return ESP_ERR_INVALID_RESPONSE;
     }
     s_microsteps = microsteps;
     events_emit("driver_microsteps", "motor", 0, "set");
@@ -479,26 +583,34 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     uint32_t ihold_irun = 0;
     uint32_t gconf = 0;
 
-    bool ok_ifcnt = (tmc_read_reg(TMC_REG_IFCNT, &ifcnt) == ESP_OK);
+    bool ok_ifcnt = (tmc_read_reg(STEPPER_TMC_REG_IFCNT, &ifcnt) == ESP_OK);
     bool ok_gstat = (tmc_read_reg(TMC_REG_GSTAT, &gstat) == ESP_OK);
     bool ok_drv = (tmc_read_reg(TMC_REG_DRV_STATUS, &drv_status) == ESP_OK);
-    bool ok_chop = (tmc_read_reg(TMC_REG_CHOPCONF, &chopconf) == ESP_OK);
+    bool ok_chop = (tmc_read_reg(STEPPER_TMC_REG_CHOPCONF, &chopconf) == ESP_OK);
     bool ok_ihold = (tmc_read_reg(TMC_REG_IHOLD_IRUN, &ihold_irun) == ESP_OK);
-    bool ok_gconf = (tmc_read_reg(TMC_REG_GCONF, &gconf) == ESP_OK);
+    bool ok_gconf = (tmc_read_reg(STEPPER_TMC_REG_GCONF, &gconf) == ESP_OK);
 
     char ifcnt_buf[8];
     char gstat_buf[12];
     char drv_buf[12];
+    char gconf_buf[14];
+    char chopconf_buf[14];
     char micro_buf[8];
     char run_buf[8];
     char hold_buf[8];
     const char *ifcnt_str = "null";
     const char *gstat_str = "null";
     const char *drv_str = "null";
+    const char *gconf_str = "null";
+    const char *chopconf_str = "null";
     const char *micro_str = "null";
     const char *run_str = "null";
     const char *hold_str = "null";
     const char *stealth_str = "null";
+    const char *mstep_str = "null";
+    const char *pdn_str = "null";
+    const char *i_scale_str = "null";
+    const char *micro_source_str = "null";
 
     if (ok_ifcnt)
     {
@@ -515,11 +627,28 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
         snprintf(drv_buf, sizeof(drv_buf), "0x%08X", (unsigned)drv_status);
         drv_str = drv_buf;
     }
+    if (ok_gconf)
+    {
+        snprintf(gconf_buf, sizeof(gconf_buf), "\"0x%08X\"", (unsigned)gconf);
+        gconf_str = gconf_buf;
+        bool mstep_sel = (gconf & STEPPER_TMC_GCONF_MSTEP_REG_SELECT) != 0;
+        bool pdn_disable = (gconf & STEPPER_TMC_GCONF_PDN_DISABLE) != 0;
+        bool i_scale = (gconf & STEPPER_TMC_GCONF_I_SCALE_ANALOG) != 0;
+        mstep_str = mstep_sel ? "true" : "false";
+        pdn_str = pdn_disable ? "true" : "false";
+        i_scale_str = i_scale ? "true" : "false";
+        micro_source_str = mstep_sel ? "\"reg\"" : "\"pins\"";
+    }
+    if (ok_chop)
+    {
+        snprintf(chopconf_buf, sizeof(chopconf_buf), "\"0x%08X\"", (unsigned)chopconf);
+        chopconf_str = chopconf_buf;
+    }
     if (ok_chop)
     {
         uint8_t mres = (uint8_t)((chopconf >> 24) & 0x0F);
         uint16_t micro = microsteps_from_mres(mres);
-        if (micro != 0)
+        if (ok_gconf && micro_source_str != NULL && strcmp(micro_source_str, "\"reg\"") == 0 && micro != 0)
         {
             snprintf(micro_buf, sizeof(micro_buf), "%u", (unsigned)micro);
             micro_str = micro_buf;
@@ -542,9 +671,12 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
 
     int written = snprintf(buf, len,
                            "{\"ifcnt\":%s,\"gstat\":%s,\"drv_status\":%s,"
-                           "\"microsteps\":%s,\"run_current\":%s,\"hold_current\":%s,"
-                           "\"stealthchop\":%s}",
+                           "\"gconf\":%s,\"chopconf\":%s,\"mstep_reg_select\":%s,"
+                           "\"pdn_disable\":%s,\"i_scale_analog\":%s,\"microsteps_source\":%s,\"microsteps\":%s,"
+                           "\"run_current\":%s,\"hold_current\":%s,\"stealthchop\":%s}",
                            ifcnt_str, gstat_str, drv_str,
-                           micro_str, run_str, hold_str, stealth_str);
+                           gconf_str, chopconf_str, mstep_str,
+                           pdn_str, i_scale_str, micro_source_str, micro_str,
+                           run_str, hold_str, stealth_str);
     return (written >= 0 && (size_t)written < len);
 }
