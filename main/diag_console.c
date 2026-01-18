@@ -344,9 +344,26 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_enable");
     }
-    if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
+    if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+    }
+    if (motor_set_speed_hz(200) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
+    }
+    if (stepper_driver_set_current(10, 2, 0) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_2");
+    }
+    if (motor_start() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_2");
+    }
+    vTaskDelay(pdMS_TO_TICKS(500));
+    if (motor_stop() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
     }
     if (motor_set_speed_hz(800) != ESP_OK)
     {
@@ -356,11 +373,35 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_31");
     }
-    if (motor_start() != ESP_OK)
+    for (int i = 0; i < 10; ++i)
     {
-        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+        if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+        }
+        if (motor_start() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (motor_stop() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+        }
+        if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+        }
+        if (motor_start() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (motor_stop() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+        }
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
     if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_31");
@@ -378,15 +419,15 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
     }
-    if (motor_stop() != ESP_OK)
-    {
-        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
-    }
     if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
     }
-    if (stepper_driver_set_current(2, 1, 0) != ESP_OK)
+    if (motor_set_speed_hz(200) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
+    }
+    if (stepper_driver_set_current(10, 2, 0) != ESP_OK)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_2");
     }
@@ -394,7 +435,7 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_2");
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(500));
     if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_2");
@@ -403,7 +444,7 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         snprintf(cs2_buf, sizeof(cs2_buf), "%d", cs2);
         cs2_str = cs2_buf;
-        if (cs2 != 2)
+        if (cs2 != 10)
         {
             add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
         }
