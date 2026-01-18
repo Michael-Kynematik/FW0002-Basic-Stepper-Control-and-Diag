@@ -71,6 +71,7 @@ D) Safety / "Safe State" Contract
 - "Safe state" means `board_is_safe()` is set to true (reflected in `snapshot` as `board_safe: true`) and `board_safe()` has been invoked.
 - `board_safe()` currently calls `motor_disable()` and sets the safe-state flag. It does not yet drive other GPIOs to safe defaults (marked TODO in code).
 - `motor_disable()` stops step pulses, sets the step pin low, disables the driver enable pin, and sets the motor state to `disabled`.
+- `remote exec safe` invokes the same `board_safe()` behavior as the CLI `safe` command; `snapshot` `board_safe` is the authoritative safe-state indicator.
 
 E) Change Rules During Cleanup
 - Do not rename stable commands.

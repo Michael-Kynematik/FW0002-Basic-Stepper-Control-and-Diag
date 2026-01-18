@@ -74,9 +74,13 @@ D) Full Bench Test (10-15 minutes)
     - PASS: Single-line JSON with key `actions` containing an array of strings.
     - Command: `remote unlock_status`
     - PASS: Single-line JSON with keys `unlocked`, `expires_in_s`.
+    - Command: `remote exec safe`
+    - PASS: `OK`.
+    - Command: `snapshot`
+    - PASS: `board_safe` is `true` in the JSON.
 11) Safe state toggle
     - Command: `safe`
-    - PASS: `OK`.
+    - PASS: `OK` (same behavior as `remote exec safe`).
     - Command: `snapshot`
     - PASS: `board_safe` is `true` in the JSON.
     - Command: `motor enable` (and/or `motor start`)
