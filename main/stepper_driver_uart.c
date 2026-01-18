@@ -695,6 +695,8 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
             micro_str = micro_buf;
         }
     }
+    // *_cmd fields are cached last-commanded values (not readable registers).
+    // cs_actual comes from DRV_STATUS (hardware-reported).
     snprintf(run_buf, sizeof(run_buf), "%u", (unsigned)s_run_current);
     snprintf(hold_buf, sizeof(hold_buf), "%u", (unsigned)s_hold_current);
     snprintf(hold_delay_buf, sizeof(hold_delay_buf), "%u", (unsigned)s_hold_delay);
@@ -718,7 +720,7 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
 
     int written = snprintf(buf, len,
                            "{\"ifcnt\":%s,\"gstat\":%s,\"drv_status\":%s,"
-                           "\"microsteps\":%s,\"run_current\":%s,\"hold_current\":%s,"
+                           "\"microsteps\":%s,\"run_current_cmd\":%s,\"hold_current_cmd\":%s,"
                            "\"hold_delay_cmd\":%s,\"stst\":%s,\"cs_actual\":%s,"
                            "\"stealthchop\":%s}",
                            ifcnt_str, gstat_str, drv_str,
