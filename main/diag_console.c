@@ -10,6 +10,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 
+#include "json_helpers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -101,25 +102,7 @@ static void print_json_string(const char *value)
     {
         value = "";
     }
-    putchar('"');
-    for (const unsigned char *p = (const unsigned char *)value; *p != '\0'; ++p)
-    {
-        unsigned char c = *p;
-        if (c == '"' || c == '\\')
-        {
-            putchar('\\');
-            putchar((char)c);
-        }
-        else if (c < 0x20)
-        {
-            printf("\\u%04x", (unsigned)c);
-        }
-        else
-        {
-            putchar((char)c);
-        }
-    }
-    putchar('"');
+    json_print_escaped_string(value);
 }
 
 static void events_print_record(const events_record_t *rec, void *ctx)
