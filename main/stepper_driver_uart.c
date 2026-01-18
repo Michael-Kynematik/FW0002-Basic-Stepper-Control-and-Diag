@@ -647,8 +647,6 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     char ifcnt_buf[8];
     char gstat_buf[12];
     char drv_buf[12];
-    char gconf_buf[14];
-    char chopconf_buf[14];
     char micro_buf[8];
     char run_buf[8];
     char hold_buf[8];
@@ -658,8 +656,6 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     const char *ifcnt_str = "null";
     const char *gstat_str = "null";
     const char *drv_str = "null";
-    const char *gconf_str = "null";
-    const char *chopconf_str = "null";
     const char *micro_str = "null";
     const char *run_str = "null";
     const char *hold_str = "null";
@@ -667,9 +663,6 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     const char *stst_str = "null";
     const char *cs_str = "null";
     const char *stealth_str = "null";
-    const char *mstep_str = "null";
-    const char *pdn_str = "null";
-    const char *i_scale_str = "null";
     const char *micro_source_str = "null";
 
     if (ok_ifcnt)
@@ -689,20 +682,8 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     }
     if (ok_gconf)
     {
-        snprintf(gconf_buf, sizeof(gconf_buf), "\"0x%08X\"", (unsigned)gconf);
-        gconf_str = gconf_buf;
         bool mstep_sel = (gconf & STEPPER_TMC_GCONF_MSTEP_REG_SELECT) != 0;
-        bool pdn_disable = (gconf & STEPPER_TMC_GCONF_PDN_DISABLE) != 0;
-        bool i_scale = (gconf & STEPPER_TMC_GCONF_I_SCALE_ANALOG) != 0;
-        mstep_str = mstep_sel ? "true" : "false";
-        pdn_str = pdn_disable ? "true" : "false";
-        i_scale_str = i_scale ? "true" : "false";
         micro_source_str = mstep_sel ? "\"reg\"" : "\"pins\"";
-    }
-    if (ok_chop)
-    {
-        snprintf(chopconf_buf, sizeof(chopconf_buf), "\"0x%08X\"", (unsigned)chopconf);
-        chopconf_str = chopconf_buf;
     }
     if (ok_chop)
     {
