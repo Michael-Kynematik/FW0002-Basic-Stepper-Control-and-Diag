@@ -502,11 +502,25 @@ esp_err_t stepper_driver_set_current(uint8_t run, uint8_t hold, uint8_t hold_del
     uint32_t val = ((uint32_t)hold & 0x1F) |
                    (((uint32_t)run & 0x1F) << 8) |
                    (((uint32_t)hold_delay & 0x0F) << 16);
+    ESP_LOGI(TAG, "set_current run=%u hold=%u hold_delay=%u val=0x%08X reg=0x10",
+             (unsigned)run, (unsigned)hold, (unsigned)hold_delay, (unsigned)val);
     esp_err_t err = tmc_write_reg(TMC_REG_IHOLD_IRUN, val);
     if (err != ESP_OK)
     {
         return err;
     }
+#if STEPPER_UART_DEBUG
+    uint32_t readback = 0;
+    esp_err_t rb_err = tmc_read_reg(TMC_REG_IHOLD_IRUN, &readback);
+    if (rb_err == ESP_OK)
+    {
+        ESP_LOGI(TAG, "ihold_irun_readback=0x%08X reg=0x10", (unsigned)readback);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "ihold_irun_readback_failed err=%s", esp_err_to_name(rb_err));
+    }
+#endif
     s_run_current = run;
     s_hold_current = hold;
     s_hold_delay = hold_delay;
