@@ -54,5 +54,6 @@ void app_main(void)
     ir_sensor_init();
     loadcell_scale_init();
     neopixel_set_mode(NEOPIXEL_MODE_BOOTING);
+    diag_console_run_startup_acceptancetest();
     diag_console_start();
 }

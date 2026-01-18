@@ -70,6 +70,7 @@ static int cmd_ir_emitter(int argc, char **argv);
 static int cmd_ir_sensor(int argc, char **argv);
 static int cmd_scale(int argc, char **argv);
 static int cmd_motor(int argc, char **argv);
+static void motor_driver_acceptancetest_run_and_print_json(void);
 
 static const diag_cmd_info_t k_diag_cmds[] = {
     {.name = "help", .usage = "[command]", .handler = &cmd_help, .registered = &s_cmd_help_registered},
@@ -260,6 +261,192 @@ static void add_error(const char **errors, size_t *count, size_t max, const char
         errors[*count] = err;
         *count += 1;
     }
+}
+
+static void motor_driver_acceptancetest_run_and_print_json(void)
+{
+    const char *errors[12];
+    size_t err_count = 0;
+
+    int ifcnt_start = -1;
+    int ifcnt_end = -1;
+    int microsteps = -1;
+    int cs31 = -1;
+    int cs2 = -1;
+    const char *micro_str = "null";
+    const char *cs31_str = "null";
+    const char *cs2_str = "null";
+    const char *stealth_str = "null";
+    char micro_buf[8];
+    char cs31_buf[8];
+    char cs2_buf[8];
+    char status_buf[256];
+
+    if (motor_disable() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable");
+    }
+    if (stepper_driver_set_microsteps(16) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps_set");
+    }
+    if (stepper_driver_set_stealthchop(false) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop_set");
+    }
+    if (stepper_driver_clear_faults() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "clearfaults");
+    }
+    uint8_t ifcnt = 0;
+    if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
+    {
+        ifcnt_start = (int)ifcnt;
+    }
+    else
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_start");
+    }
+    if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_start");
+    }
+    else
+    {
+        if (json_get_int_field(status_buf, "microsteps", &microsteps))
+        {
+            snprintf(micro_buf, sizeof(micro_buf), "%d", microsteps);
+            micro_str = micro_buf;
+            if (microsteps != 16)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
+            }
+        }
+        else
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
+        }
+        bool stealth = false;
+        if (json_get_bool_field(status_buf, "stealthchop", &stealth))
+        {
+            stealth_str = stealth ? "true" : "false";
+            if (stealth)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
+            }
+        }
+        else
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
+        }
+    }
+    if (motor_enable() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_enable");
+    }
+    if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+    }
+    if (motor_set_speed_hz(800) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
+    }
+    if (stepper_driver_set_current(31, 31, 0) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_31");
+    }
+    if (motor_start() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_31");
+    }
+    else if (json_get_int_field(status_buf, "cs_actual", &cs31))
+    {
+        snprintf(cs31_buf, sizeof(cs31_buf), "%d", cs31);
+        cs31_str = cs31_buf;
+        if (cs31 != 31)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
+        }
+    }
+    else
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
+    }
+    if (motor_stop() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+    }
+    if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+    }
+    if (stepper_driver_set_current(2, 1, 0) != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_2");
+    }
+    if (motor_start() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_2");
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_2");
+    }
+    else if (json_get_int_field(status_buf, "cs_actual", &cs2))
+    {
+        snprintf(cs2_buf, sizeof(cs2_buf), "%d", cs2);
+        cs2_str = cs2_buf;
+        if (cs2 != 2)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
+        }
+    }
+    else
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
+    }
+    if (motor_stop() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
+    }
+    if (motor_disable() != ESP_OK)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable_end");
+    }
+    if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
+    {
+        ifcnt_end = (int)ifcnt;
+    }
+    else
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_end");
+    }
+    if (ifcnt_start >= 0 && ifcnt_end >= 0 && ifcnt_end <= ifcnt_start)
+    {
+        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_delta");
+    }
+
+    const char *overall = (err_count == 0) ? "PASS" : "FAIL";
+    printf("{\"overall\":\"%s\",\"ifcnt_start\":%d,\"ifcnt_end\":%d,"
+           "\"cs31\":%s,\"cs2\":%s,\"microsteps\":%s,\"stealthchop\":%s,\"errors\":[",
+           overall, ifcnt_start, ifcnt_end,
+           cs31_str, cs2_str, micro_str, stealth_str);
+    for (size_t i = 0; i < err_count; ++i)
+    {
+        if (i > 0)
+        {
+            printf(",");
+        }
+        print_json_string(errors[i]);
+    }
+    printf("]}\n");
 }
 
 static int cmd_help(int argc, char **argv)
@@ -861,185 +1048,7 @@ static int cmd_motor(int argc, char **argv)
                 print_err_json("invalid_args");
                 return 0;
             }
-            const char *errors[12];
-            size_t err_count = 0;
-
-            int ifcnt_start = -1;
-            int ifcnt_end = -1;
-            int microsteps = -1;
-            int cs31 = -1;
-            int cs2 = -1;
-            const char *micro_str = "null";
-            const char *cs31_str = "null";
-            const char *cs2_str = "null";
-            const char *stealth_str = "null";
-            char micro_buf[8];
-            char cs31_buf[8];
-            char cs2_buf[8];
-            char status_buf[256];
-
-            board_safe();
-            if (motor_disable() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable");
-            }
-            if (stepper_driver_set_microsteps(16) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps_set");
-            }
-            if (stepper_driver_set_stealthchop(false) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop_set");
-            }
-            if (stepper_driver_clear_faults() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "clearfaults");
-            }
-            uint8_t ifcnt = 0;
-            if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
-            {
-                ifcnt_start = (int)ifcnt;
-            }
-            else
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_start");
-            }
-            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_start");
-            }
-            else
-            {
-                if (json_get_int_field(status_buf, "microsteps", &microsteps))
-                {
-                    snprintf(micro_buf, sizeof(micro_buf), "%d", microsteps);
-                    micro_str = micro_buf;
-                    if (microsteps != 16)
-                    {
-                        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
-                    }
-                }
-                else
-                {
-                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
-                }
-                bool stealth = false;
-                if (json_get_bool_field(status_buf, "stealthchop", &stealth))
-                {
-                    stealth_str = stealth ? "true" : "false";
-                    if (stealth)
-                    {
-                        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
-                    }
-                }
-                else
-                {
-                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
-                }
-            }
-            if (motor_enable() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_enable");
-            }
-            if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
-            }
-            if (motor_set_speed_hz(800) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
-            }
-            if (stepper_driver_set_current(31, 31, 0) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_31");
-            }
-            if (motor_start() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
-            }
-            vTaskDelay(pdMS_TO_TICKS(200));
-            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_31");
-            }
-            else if (json_get_int_field(status_buf, "cs_actual", &cs31))
-            {
-                snprintf(cs31_buf, sizeof(cs31_buf), "%d", cs31);
-                cs31_str = cs31_buf;
-                if (cs31 != 31)
-                {
-                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
-                }
-            }
-            else
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
-            }
-            if (motor_stop() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
-            }
-            if (stepper_driver_set_current(2, 1, 0) != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_2");
-            }
-            if (motor_start() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_2");
-            }
-            vTaskDelay(pdMS_TO_TICKS(200));
-            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_2");
-            }
-            else if (json_get_int_field(status_buf, "cs_actual", &cs2))
-            {
-                snprintf(cs2_buf, sizeof(cs2_buf), "%d", cs2);
-                cs2_str = cs2_buf;
-                if (cs2 != 2)
-                {
-                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
-                }
-            }
-            else
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
-            }
-            if (motor_stop() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
-            }
-            if (motor_disable() != ESP_OK)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable_end");
-            }
-            if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
-            {
-                ifcnt_end = (int)ifcnt;
-            }
-            else
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_end");
-            }
-            if (ifcnt_start >= 0 && ifcnt_end >= 0 && ifcnt_end <= ifcnt_start)
-            {
-                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_delta");
-            }
-
-            const char *overall = (err_count == 0) ? "PASS" : "FAIL";
-            printf("{\"overall\":\"%s\",\"ifcnt_start\":%d,\"ifcnt_end\":%d,"
-                   "\"cs31\":%s,\"cs2\":%s,\"microsteps\":%s,\"stealthchop\":%s,\"errors\":[",
-                   overall, ifcnt_start, ifcnt_end,
-                   cs31_str, cs2_str, micro_str, stealth_str);
-            for (size_t i = 0; i < err_count; ++i)
-            {
-                if (i > 0)
-                {
-                    printf(",");
-                }
-                print_json_string(errors[i]);
-            }
-            printf("]}\n");
+            motor_driver_acceptancetest_run_and_print_json();
             return 0;
         }
         print_err_json("invalid_args");
@@ -1196,6 +1205,11 @@ static int cmd_motor(int argc, char **argv)
     }
     print_err_json("invalid_args");
     return 0;
+}
+
+void diag_console_run_startup_acceptancetest(void)
+{
+    motor_driver_acceptancetest_run_and_print_json();
 }
 
 static int cmd_reboot(int argc, char **argv)
