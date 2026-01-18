@@ -373,30 +373,34 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_31");
     }
-    if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
-    {
-        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
-    }
-    if (motor_start() != ESP_OK)
-    {
-        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
-    }
     for (int i = 0; i < 100; ++i)
     {
         if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
         {
             add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        if (motor_start() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        if (motor_stop() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+        }
         if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
         {
             add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-    if (motor_stop() != ESP_OK)
-    {
-        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+        if (motor_start() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        if (motor_stop() != ESP_OK)
+        {
+            add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+        }
     }
     if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
     {
