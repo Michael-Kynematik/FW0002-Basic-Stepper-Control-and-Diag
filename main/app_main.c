@@ -44,6 +44,7 @@ static const char *reset_reason_to_str(esp_reset_reason_t r)
 
 void app_main(void)
 {
+    board_force_motor_pins_safe_early();
     printf("\nFW0002 boot v%s (%s)\n", FW_VERSION, FW_BUILD);
     events_init();
     events_emit("boot_reset", "system", (int)esp_reset_reason(), reset_reason_to_str(esp_reset_reason()));

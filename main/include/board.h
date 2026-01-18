@@ -26,5 +26,6 @@
 // Console invariant: USB CDC on known-good COM port; do not change transport without validation.
 
 void board_init_safe(void);
+void board_force_motor_pins_safe_early(void);
 void board_safe(void);
 bool board_is_safe(void);
