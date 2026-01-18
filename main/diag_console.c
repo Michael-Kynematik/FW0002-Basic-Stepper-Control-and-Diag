@@ -686,7 +686,7 @@ static int cmd_motor(int argc, char **argv)
         }
         if (strcmp(sub, "current") == 0)
         {
-            if (argc < 7 || argc > 9)
+            if (argc != 7 && argc != 9)
             {
                 print_err_json("invalid_args");
                 return 0;

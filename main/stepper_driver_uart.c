@@ -132,13 +132,66 @@ static esp_err_t tmc_uart_write(const uint8_t *data, size_t len)
     {
         return ESP_ERR_INVALID_STATE;
     }
-    uart_flush_input(STEPPER_UART);
+    esp_err_t err = uart_flush_input(STEPPER_UART);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "uart_flush_input failed: %s", esp_err_to_name(err));
+        return err;
+    }
     int written = uart_write_bytes(STEPPER_UART, data, len);
     if (written != (int)len)
     {
         return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+static void tmc_uart_drain_rx(TickType_t max_ticks)
+{
+    uint8_t dump[16];
+    TickType_t start = xTaskGetTickCount();
+    while ((xTaskGetTickCount() - start) < max_ticks)
+    {
+        int read = uart_read_bytes(STEPPER_UART, dump, sizeof(dump), 1);
+        if (read <= 0)
+        {
+            break;
+        }
+    }
+}
+
+static bool tmc_find_reply(const uint8_t *rx, size_t total, uint8_t reg, const uint8_t **reply_out)
+{
+    if (rx == NULL || reply_out == NULL || total < 8)
+    {
+        return false;
+    }
+    const uint8_t reg_masked = (uint8_t)(reg & 0x7F);
+    const uint8_t *reply = NULL;
+    for (size_t i = 0; i + 8 <= total; ++i)
+    {
+        const uint8_t *cand = &rx[i];
+        if (cand[0] != TMC_SYNC || cand[1] != 0xFF)
+        {
+            continue;
+        }
+        if ((cand[2] & 0x7F) != reg_masked)
+        {
+            continue;
+        }
+        uint8_t crc = tmc_crc(cand, 7);
+        if (crc != cand[7])
+        {
+            continue;
+        }
+        reply = cand;
+    }
+    if (reply == NULL)
+    {
+        return false;
+    }
+    *reply_out = reply;
+    return true;
 }
 
 static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, bool emit_events)
@@ -205,32 +258,24 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
 #endif
     if (total < 8)
     {
+        if (total > 0)
+        {
+            char rx_hex[48];
+            size_t dump_len = (total > 16) ? 16 : total;
+            format_hex_bytes(rx, dump_len, rx_hex, sizeof(rx_hex));
+            ESP_LOGE(TAG, "reply_invalid rx_len=%u data=%s", (unsigned)total, rx_hex);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
         ESP_LOGE(TAG, "rx_len=%u", (unsigned)total);
         return ESP_ERR_TIMEOUT;
     }
     const uint8_t *resp = NULL;
-    if (total >= 12)
+    if (!tmc_find_reply(rx, total, reg, &resp))
     {
-        resp = &rx[total - 8];
-    }
-    else if (total == 8)
-    {
-        resp = &rx[0];
-    }
-    else
-    {
-        ESP_LOGE(TAG, "rx_len=%u", (unsigned)total);
-        return ESP_ERR_TIMEOUT;
-    }
-    uint8_t crc = tmc_crc(resp, 7);
-    if (crc != resp[7] || resp[0] != TMC_SYNC || resp[1] != 0xFF)
-    {
-        ESP_LOGE(TAG, "reply_invalid");
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    if ((resp[2] & 0x7F) != (reg & 0x7F))
-    {
-        ESP_LOGE(TAG, "reg_mismatch");
+        char rx_hex[48];
+        size_t dump_len = (total > 16) ? 16 : total;
+        format_hex_bytes(rx, dump_len, rx_hex, sizeof(rx_hex));
+        ESP_LOGE(TAG, "reply_invalid rx_len=%u data=%s", (unsigned)total, rx_hex);
         return ESP_ERR_INVALID_RESPONSE;
     }
 #if STEPPER_UART_DEBUG
@@ -354,7 +399,30 @@ esp_err_t stepper_uart_ensure_gconf_uart_mode(uint8_t slave)
 
 static esp_err_t tmc_write_reg(uint8_t reg, uint32_t value)
 {
-    return tmc_write_reg_addr(TMC_SLAVE_ADDR, reg, value);
+    uint8_t req[8] = {
+        TMC_SYNC,
+        TMC_SLAVE_ADDR,
+        (uint8_t)(reg | 0x80),
+        (uint8_t)((value >> 24) & 0xFF),
+        (uint8_t)((value >> 16) & 0xFF),
+        (uint8_t)((value >> 8) & 0xFF),
+        (uint8_t)(value & 0xFF),
+        0};
+    req[7] = tmc_crc(req, 7);
+    esp_err_t err = tmc_uart_write(req, sizeof(req));
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uart_wait_tx_done(STEPPER_UART, pdMS_TO_TICKS(20));
+    err = uart_flush_input(STEPPER_UART);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "uart_flush_input failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    tmc_uart_drain_rx(pdMS_TO_TICKS(5));
+    return ESP_OK;
 }
 
 static bool mres_from_microsteps(uint16_t microsteps, uint8_t *out)
@@ -547,6 +615,10 @@ esp_err_t stepper_driver_set_current(uint8_t run, uint8_t hold, uint8_t hold_del
     uint32_t val = ((uint32_t)hold & 0x1F) |
                    (((uint32_t)run & 0x1F) << 8) |
                    (((uint32_t)hold_delay & 0x0F) << 16);
+#if STEPPER_UART_DEBUG
+    ESP_LOGI(TAG, "set_current run=%u hold=%u hold_delay=%u val=0x%08X reg=0x10",
+             (unsigned)run, (unsigned)hold, (unsigned)hold_delay, (unsigned)val);
+#endif
     esp_err_t err = tmc_write_reg(TMC_REG_IHOLD_IRUN, val);
     if (err != ESP_OK)
     {
@@ -580,7 +652,6 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     uint32_t gstat = 0;
     uint32_t drv_status = 0;
     uint32_t chopconf = 0;
-    uint32_t ihold_irun = 0;
     uint32_t gconf = 0;
 
     bool ok_ifcnt = (tmc_read_reg(STEPPER_TMC_REG_IFCNT, &ifcnt) == ESP_OK);
@@ -598,6 +669,9 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     char micro_buf[8];
     char run_buf[8];
     char hold_buf[8];
+    char hold_delay_buf[8];
+    char stst_buf[8];
+    char cs_buf[8];
     const char *ifcnt_str = "null";
     const char *gstat_str = "null";
     const char *drv_str = "null";
@@ -606,6 +680,9 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     const char *micro_str = "null";
     const char *run_str = "null";
     const char *hold_str = "null";
+    const char *hold_delay_str = "null";
+    const char *stst_str = "null";
+    const char *cs_str = "null";
     const char *stealth_str = "null";
     const char *mstep_str = "null";
     const char *pdn_str = "null";
@@ -654,14 +731,20 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
             micro_str = micro_buf;
         }
     }
-    if (ok_ihold)
+    snprintf(run_buf, sizeof(run_buf), "%u", (unsigned)s_run_current);
+    snprintf(hold_buf, sizeof(hold_buf), "%u", (unsigned)s_hold_current);
+    snprintf(hold_delay_buf, sizeof(hold_delay_buf), "%u", (unsigned)s_hold_delay);
+    run_str = run_buf;
+    hold_str = hold_buf;
+    hold_delay_str = hold_delay_buf;
+    if (ok_drv)
     {
-        uint8_t hold = (uint8_t)(ihold_irun & 0x1F);
-        uint8_t run = (uint8_t)((ihold_irun >> 8) & 0x1F);
-        snprintf(run_buf, sizeof(run_buf), "%u", (unsigned)run);
-        snprintf(hold_buf, sizeof(hold_buf), "%u", (unsigned)hold);
-        run_str = run_buf;
-        hold_str = hold_buf;
+        uint8_t stst = (uint8_t)((drv_status >> 31) & 0x01);
+        uint8_t cs_actual = (uint8_t)((drv_status >> 16) & 0x1F);
+        snprintf(stst_buf, sizeof(stst_buf), "%u", (unsigned)stst);
+        snprintf(cs_buf, sizeof(cs_buf), "%u", (unsigned)cs_actual);
+        stst_str = stst_buf;
+        cs_str = cs_buf;
     }
     if (ok_gconf)
     {
@@ -671,12 +754,12 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
 
     int written = snprintf(buf, len,
                            "{\"ifcnt\":%s,\"gstat\":%s,\"drv_status\":%s,"
-                           "\"gconf\":%s,\"chopconf\":%s,\"mstep_reg_select\":%s,"
-                           "\"pdn_disable\":%s,\"i_scale_analog\":%s,\"microsteps_source\":%s,\"microsteps\":%s,"
-                           "\"run_current\":%s,\"hold_current\":%s,\"stealthchop\":%s}",
+                           "\"microsteps\":%s,\"run_current\":%s,\"hold_current\":%s,"
+                           "\"hold_delay_cmd\":%s,\"stst\":%s,\"cs_actual\":%s,"
+                           "\"stealthchop\":%s}",
                            ifcnt_str, gstat_str, drv_str,
-                           gconf_str, chopconf_str, mstep_str,
-                           pdn_str, i_scale_str, micro_source_str, micro_str,
-                           run_str, hold_str, stealth_str);
+                           micro_str, run_str, hold_str,
+                           hold_delay_str, stst_str, cs_str,
+                           stealth_str);
     return (written >= 0 && (size_t)written < len);
 }
