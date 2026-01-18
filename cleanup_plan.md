@@ -1,16 +1,17 @@
 # Cleanup Plan (FW0002)
 
-## 1) Scope and Principles
-- Production diagnostics = documented CLI surface + JSON schemas in `docs/firmware_contract.md` and `docs/bench_test_protocol.md`, plus minimal boot banner.
-- Dev-only bringup = boot-time acceptancetest, raw driver tuning commands, and verbose UART logs that are not required for end users.
+## A) Scope and Principles
+- Production diagnostics = documented CLI surface + JSON schemas in `docs/firmware_contract.md` and `docs/bench_test_protocol.md`, plus a minimal boot banner.
+- Dev-only bringup = boot-time acceptancetest, raw driver tuning commands, and verbose UART logs not required by end users.
 - Non-negotiables: keep `docs/firmware_contract.md` and `docs/bench_test_protocol.md` valid; no behavior changes without explicit contract/test updates.
 
-## 2) Current Structure Snapshot
+## B) Current Structure Snapshot
 - `main/app_main.c`: boot sequence, init ordering, and boot canary (acceptancetest).
 - `main/board.c` + `main/include/board.h`: pin map + safe-state flag; early motor pin safing.
 - `main/motor.c` + `main/include/motor.h`: step pulse generation, motor state machine, and motor JSON.
 - `main/stepper_driver_uart.c` + `main/include/stepper_driver_uart.h`: TMC2209 UART transport + driver config/status JSON.
 - `main/diag_console.c`: CLI parsing, command handlers, JSON printing, and acceptancetest logic.
+- `main/json_helpers.c` + `main/include/json_helpers.h`: shared JSON string escaping helpers.
 - `main/snapshot.c` + `main/include/snapshot.h`: snapshot JSON builder and field registry.
 - `main/events.c` + `main/include/events.h`: ring-buffer event log and tail/clear.
 - `main/remote_actions.c` + `main/include/remote_actions.h`: allowlisted remote actions + unlock gate.
@@ -19,7 +20,7 @@
 - `main/ir_emitter.c` + `main/ir_sensor.c`: IR I/O + status JSON.
 - Motor-critical path files: `main/board.c`, `main/motor.c`, `main/stepper_driver_uart.c`, `main/diag_console.c`, `main/app_main.c`.
 
-## 3) Findings (by category)
+## C) Findings (by category)
 ### A) Dead/unused code candidates
 - `main/loadcell_adc.c`: `loadcell_adc_power_down()` and `loadcell_adc_power_up()` are defined but never called.
 - `main/remote_actions.c`: `s_safe_state` is written but never read or reported.
@@ -34,7 +35,7 @@
 ### C) Risky coupling / unclear boundaries
 - `main/diag_console.c` owns acceptancetest logic and directly drives motor + driver settings; this blurs CLI vs motor diagnostics.
 - `main/remote_actions.c` "safe" action does not call `board_safe()` (separate safe-state flags).
-- JSON escaping/formatting is duplicated between `main/diag_console.c` and `main/snapshot.c`.
+- JSON escaping/formatting still exists in `main/snapshot.c` outside `main/json_helpers.c`.
 - Reset reason formatting is duplicated in `main/app_main.c` and `main/snapshot.c`.
 
 ### D) Naming inconsistencies / duplication / layering issues
@@ -48,43 +49,20 @@
 - `main/remote_actions.c`: "safe" action does not map to `board_safe()` or `board_is_safe()`.
 - `main/app_main.c`: boot-time acceptancetest runs every boot (should be gated or configurable).
 - `main/diag_console.c`: acceptancetest logic lives inside CLI (consider moving to motor diagnostics module).
-- `main/diag_console.c` and `main/snapshot.c`: duplicate JSON string escaping and formatting logic.
+- `main/snapshot.c`: still uses local JSON string escaping/formatting (consider migrating to `main/json_helpers.c`).
 - `main/stepper_driver_uart.c`: INFO-level UART logs on every transaction (should be debug-gated).
 - `main/stepper_driver_uart.c`: wiring reference block mixes docs with code (should move to docs).
 - `main/motor.c`: driver defaults applied on init without a config/profile boundary.
 - `main/events.c`: ring buffer size and overflow policy are implicit (define in contract or config).
 
-## 4) Proposed Target Structure (Recommended)
-- Recommendation: keep motor code in more than one file (control vs driver), but group it and clarify ownership.
-- Target layout (example):
-  - `main/board/` (pin map, safe state)
-  - `main/motor/`
-    - `motor_control.c` (state machine, timer, enable/disable)
-    - `motor_diag.c` (acceptancetest logic)
-  - `main/drivers/`
-    - `tmc2209_uart.c` (UART transport + driver config/status)
-  - `main/diag/`
-    - `console.c` (CLI parsing + routing)
-    - `json_helpers.c` (shared JSON string escaping)
-    - `snapshot.c` (snapshot builder)
-    - `events.c` (event store)
-    - `remote_actions.c` (remote allowlist)
-  - `main/peripherals/`
-    - `neopixel.c`, `ir_emitter.c`, `ir_sensor.c`, `loadcell_adc.c`, `loadcell_scale.c`
+## D) Completed Work
+- Block 0.x: boot acceptancetest canary + jam-clear tuning + early pin safing.
+- Block 1: `docs/firmware_contract.md` + `docs/bench_test_protocol.md`.
+- Block 2: comments-only clarifications.
+- Block 4: `main/json_helpers.c` + `main/include/json_helpers.h` scaffold.
+- Block 5: migrated `main/diag_console.c` JSON string escaping to `main/json_helpers.c` (validated).
 
-## 5) Execution Plan: Ordered Blocks (Block 4+)
-- Block 4: "Module Map Cleanup"
-  - Goal: move files into folders and update includes only.
-  - Files: `main/*`, `main/include/*`, `main/CMakeLists.txt`.
-  - Behavior change: No behavior change.
-  - Tests: smoke (CLI help + snapshot).
-  - Risk: low.
-- Block 5: "Shared JSON Helpers"
-  - Goal: centralize JSON escaping/printing used by console + snapshot.
-  - Files: `main/diag_console.c`, `main/snapshot.c`, new `main/diag/json_helpers.c/.h`.
-  - Behavior change: No behavior change.
-  - Tests: smoke (snapshot + events tail output).
-  - Risk: low.
+## E) Remaining Blocks (Block 6+)
 - Block 6: "Reset Reason Unification"
   - Goal: single `reset_reason_to_str` shared by boot + snapshot.
   - Files: `main/app_main.c`, `main/snapshot.c`, new `main/diag/reset_reason.c/.h` (or similar).
@@ -128,7 +106,12 @@
   - Tests: smoke (events tail/clear).
   - Risk: low.
 
-## 6) Do Not Touch Yet
+## F) Workflow Rules
+- New branch per block, commit after each block, push branch, open PR, user merges in GitHub UI.
+- Bench test protocol must pass after each block.
+- No contract-breaking changes without updating `docs/firmware_contract.md` and `docs/bench_test_protocol.md`.
+
+## Do Not Touch Yet
 - Step pulse timing and ISR behavior in `main/motor.c` until motor motion tests are repeatable.
 - TMC2209 UART framing and CRC logic in `main/stepper_driver_uart.c` without hardware in the loop.
 - Pin map in `main/include/board.h` until hardware revisions are finalized.
