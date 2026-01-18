@@ -1,4 +1,6 @@
 #include "remote_actions.h"
+// Remote actions are an allowlisted control surface (not the full CLI).
+// "Unlock" is a time-limited gate, not authentication.
 
 #include <string.h>
 #include <stdio.h>
@@ -180,6 +182,7 @@ static remote_action_result_t action_safe(const char *args, char *out_json, size
     return REMOTE_ACTION_OK;
 }
 
+// Stub: returns OK but does not actually reboot yet.
 static remote_action_result_t action_reboot(const char *args, char *out_json, size_t out_len)
 {
     (void)args;

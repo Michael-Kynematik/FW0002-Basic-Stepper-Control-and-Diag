@@ -5,8 +5,12 @@
 #include "events.h"
 #include "motor.h"
 
+// Safe state (today): motor disabled + software flag for snapshot reporting.
+// TODO: does not yet drive all peripheral GPIOs to safe defaults.
 static bool s_safe_state = false;
 
+// Early motor pin safing to prevent STEP/EN glitches right after reset/flash.
+// Forces STEP low, EN disabled (per motor_disable polarity), DIR default before other init.
 void board_force_motor_pins_safe_early(void)
 {
     gpio_config_t out_cfg = {
@@ -31,6 +35,7 @@ void board_init_safe(void)
     events_emit("safe_state", "board", 0, "applied");
 }
 
+// Marks board safe and disables motor; TODO: safe all peripherals (GPIO defaults) later.
 void board_safe(void)
 {
     // TODO: drive actual GPIOs to safe defaults once wired.
