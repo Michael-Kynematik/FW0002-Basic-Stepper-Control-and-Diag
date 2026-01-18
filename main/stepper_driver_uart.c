@@ -34,6 +34,7 @@
 #include <inttypes.h>
 
 #include "board.h"
+#include "motor_driver_defaults.h"
 #include "esp_log.h"
 #include "events.h"
 #include "driver/uart.h"
@@ -60,11 +61,11 @@ static const char *TAG = "stepper_uart";
 #define TMC_GSTAT_RESET_MASK 0x07
 
 static bool s_uart_ready = false;
-static uint16_t s_microsteps = 16;
+static uint16_t s_microsteps = MOTOR_DRIVER_DEFAULT_MICROSTEPS;
 static uint8_t s_run_current = 0;
 static uint8_t s_hold_current = 0;
 static uint8_t s_hold_delay = 0;
-static bool s_stealthchop = true;
+static bool s_stealthchop = MOTOR_DRIVER_DEFAULT_STEALTHCHOP;
 
 static void format_hex_bytes(const uint8_t *data, size_t len, char *out, size_t out_len)
 {
