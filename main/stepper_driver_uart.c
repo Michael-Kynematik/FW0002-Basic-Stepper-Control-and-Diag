@@ -260,8 +260,10 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
         ESP_LOGE(TAG, "reply_invalid rx_len=%u data=%s", (unsigned)total, rx_hex);
         return ESP_ERR_INVALID_RESPONSE;
     }
+#if STEPPER_UART_DEBUG
     ESP_LOGI(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
              resp[2], resp[3], resp[4], resp[5], resp[6]);
+#endif
     *out = ((uint32_t)resp[3] << 24) |
            ((uint32_t)resp[4] << 16) |
            ((uint32_t)resp[5] << 8) |
