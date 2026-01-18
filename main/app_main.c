@@ -44,7 +44,6 @@ static const char *reset_reason_to_str(esp_reset_reason_t r)
 
 void app_main(void)
 {
-    // Run first to prevent motor twitch before monitor attaches.
     board_force_motor_pins_safe_early();
     printf("\nFW0002 boot v%s (%s)\n", FW_VERSION, FW_BUILD);
     events_init();
@@ -56,7 +55,6 @@ void app_main(void)
     ir_sensor_init();
     loadcell_scale_init();
     neopixel_set_mode(NEOPIXEL_MODE_BOOTING);
-    // Boot-time motor canary: moves motor and prints JSON even without monitor attached.
     diag_console_run_startup_acceptancetest();
     diag_console_start();
 }

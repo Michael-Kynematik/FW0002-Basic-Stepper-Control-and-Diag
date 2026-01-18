@@ -1,15 +1,12 @@
 #include "board.h"
-// Safe state (today): motor disabled + a software safe flag for snapshot reporting; TODO full GPIO safing.
 
 #include "driver/gpio.h"
 
 #include "events.h"
 #include "motor.h"
 
-// Snapshot reads this flag to report board_safe.
 static bool s_safe_state = false;
 
-// Runs first to prevent step/enable glitches after reset by forcing STEP low, EN disabled, DIR default.
 void board_force_motor_pins_safe_early(void)
 {
     gpio_config_t out_cfg = {
@@ -34,7 +31,6 @@ void board_init_safe(void)
     events_emit("safe_state", "board", 0, "applied");
 }
 
-// Marks the board safe and disables the motor; TODO set all peripherals to safe outputs.
 void board_safe(void)
 {
     // TODO: drive actual GPIOs to safe defaults once wired.
