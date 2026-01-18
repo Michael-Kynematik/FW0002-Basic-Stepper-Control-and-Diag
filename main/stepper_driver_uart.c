@@ -515,16 +515,6 @@ esp_err_t stepper_driver_set_current(uint8_t run, uint8_t hold, uint8_t hold_del
     {
         return err;
     }
-    uint32_t readback = 0;
-    esp_err_t rb_err = tmc_read_reg(TMC_REG_IHOLD_IRUN, &readback);
-    if (rb_err == ESP_OK)
-    {
-        ESP_LOGI(TAG, "ihold_irun_readback=0x%08X reg=0x10", (unsigned)readback);
-    }
-    else
-    {
-        ESP_LOGI(TAG, "ihold_irun_readback_failed err=%s", esp_err_to_name(rb_err));
-    }
     s_run_current = run;
     s_hold_current = hold;
     s_hold_delay = hold_delay;
@@ -553,14 +543,12 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     uint32_t gstat = 0;
     uint32_t drv_status = 0;
     uint32_t chopconf = 0;
-    uint32_t ihold_irun = 0;
     uint32_t gconf = 0;
 
     bool ok_ifcnt = (tmc_read_reg(TMC_REG_IFCNT, &ifcnt) == ESP_OK);
     bool ok_gstat = (tmc_read_reg(TMC_REG_GSTAT, &gstat) == ESP_OK);
     bool ok_drv = (tmc_read_reg(TMC_REG_DRV_STATUS, &drv_status) == ESP_OK);
     bool ok_chop = (tmc_read_reg(TMC_REG_CHOPCONF, &chopconf) == ESP_OK);
-    bool ok_ihold = (tmc_read_reg(TMC_REG_IHOLD_IRUN, &ihold_irun) == ESP_OK);
     bool ok_gconf = (tmc_read_reg(TMC_REG_GCONF, &gconf) == ESP_OK);
 
     char ifcnt_buf[8];
@@ -569,12 +557,18 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     char micro_buf[8];
     char run_buf[8];
     char hold_buf[8];
+    char hold_delay_buf[8];
+    char stst_buf[8];
+    char cs_buf[8];
     const char *ifcnt_str = "null";
     const char *gstat_str = "null";
     const char *drv_str = "null";
     const char *micro_str = "null";
     const char *run_str = "null";
     const char *hold_str = "null";
+    const char *hold_delay_str = "null";
+    const char *stst_str = "null";
+    const char *cs_str = "null";
     const char *stealth_str = "null";
 
     if (ok_ifcnt)
@@ -602,14 +596,20 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
             micro_str = micro_buf;
         }
     }
-    if (ok_ihold)
+    snprintf(run_buf, sizeof(run_buf), "%u", (unsigned)s_run_current);
+    snprintf(hold_buf, sizeof(hold_buf), "%u", (unsigned)s_hold_current);
+    snprintf(hold_delay_buf, sizeof(hold_delay_buf), "%u", (unsigned)s_hold_delay);
+    run_str = run_buf;
+    hold_str = hold_buf;
+    hold_delay_str = hold_delay_buf;
+    if (ok_drv)
     {
-        uint8_t hold = (uint8_t)(ihold_irun & 0x1F);
-        uint8_t run = (uint8_t)((ihold_irun >> 8) & 0x1F);
-        snprintf(run_buf, sizeof(run_buf), "%u", (unsigned)run);
-        snprintf(hold_buf, sizeof(hold_buf), "%u", (unsigned)hold);
-        run_str = run_buf;
-        hold_str = hold_buf;
+        uint8_t stst = (uint8_t)((drv_status >> 31) & 0x01);
+        uint8_t cs_actual = (uint8_t)(drv_status & 0x1F);
+        snprintf(stst_buf, sizeof(stst_buf), "%u", (unsigned)stst);
+        snprintf(cs_buf, sizeof(cs_buf), "%u", (unsigned)cs_actual);
+        stst_str = stst_buf;
+        cs_str = cs_buf;
     }
     if (ok_gconf)
     {
@@ -620,8 +620,11 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     int written = snprintf(buf, len,
                            "{\"ifcnt\":%s,\"gstat\":%s,\"drv_status\":%s,"
                            "\"microsteps\":%s,\"run_current\":%s,\"hold_current\":%s,"
+                           "\"hold_delay_cmd\":%s,\"stst\":%s,\"cs_actual\":%s,"
                            "\"stealthchop\":%s}",
                            ifcnt_str, gstat_str, drv_str,
-                           micro_str, run_str, hold_str, stealth_str);
+                           micro_str, run_str, hold_str,
+                           hold_delay_str, stst_str, cs_str,
+                           stealth_str);
     return (written >= 0 && (size_t)written < len);
 }
