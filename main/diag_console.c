@@ -180,6 +180,88 @@ static bool parse_samples_arg(const char *arg, int *samples)
     return true;
 }
 
+static const char *json_find_key(const char *json, const char *key)
+{
+    if (json == NULL || key == NULL)
+    {
+        return NULL;
+    }
+    char pattern[64];
+    int written = snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    if (written < 0 || (size_t)written >= sizeof(pattern))
+    {
+        return NULL;
+    }
+    const char *found = strstr(json, pattern);
+    if (found == NULL)
+    {
+        return NULL;
+    }
+    return found + written;
+}
+
+static bool json_get_int_field(const char *json, const char *key, int *out)
+{
+    if (out == NULL)
+    {
+        return false;
+    }
+    const char *p = json_find_key(json, key);
+    if (p == NULL)
+    {
+        return false;
+    }
+    if (strncmp(p, "null", 4) == 0)
+    {
+        return false;
+    }
+    char *end = NULL;
+    long val = strtol(p, &end, 0);
+    if (end == p)
+    {
+        return false;
+    }
+    *out = (int)val;
+    return true;
+}
+
+static bool json_get_bool_field(const char *json, const char *key, bool *out)
+{
+    if (out == NULL)
+    {
+        return false;
+    }
+    const char *p = json_find_key(json, key);
+    if (p == NULL)
+    {
+        return false;
+    }
+    if (strncmp(p, "true", 4) == 0)
+    {
+        *out = true;
+        return true;
+    }
+    if (strncmp(p, "false", 5) == 0)
+    {
+        *out = false;
+        return true;
+    }
+    return false;
+}
+
+static void add_error(const char **errors, size_t *count, size_t max, const char *err)
+{
+    if (errors == NULL || count == NULL || err == NULL)
+    {
+        return;
+    }
+    if (*count < max)
+    {
+        errors[*count] = err;
+        *count += 1;
+    }
+}
+
 static int cmd_help(int argc, char **argv)
 {
     if (argc == 1)
@@ -204,7 +286,7 @@ static int cmd_help(int argc, char **argv)
     }
     if (argc == 3 && strcmp(argv[1], "motor") == 0 && strcmp(argv[2], "driver") == 0)
     {
-        printf("motor driver ping | ifcnt | stealthchop on|off | microsteps <1|2|4|8|16|32|64|128|256> | current run <0-31> hold <0-31> [hold_delay <0-15>] | status | clearfaults\n");
+        printf("motor driver ping | ifcnt | stealthchop on|off | microsteps <1|2|4|8|16|32|64|128|256> | current run <0-31> hold <0-31> [hold_delay <0-15>] | status | clearfaults | acceptancetest\n");
         return 0;
     }
     printf("ERR invalid_args\n");
@@ -770,6 +852,194 @@ static int cmd_motor(int argc, char **argv)
                 return 0;
             }
             printf("OK\n");
+            return 0;
+        }
+        if (strcmp(sub, "acceptancetest") == 0)
+        {
+            if (argc != 3)
+            {
+                print_err_json("invalid_args");
+                return 0;
+            }
+            const char *errors[12];
+            size_t err_count = 0;
+
+            int ifcnt_start = -1;
+            int ifcnt_end = -1;
+            int microsteps = -1;
+            int cs31 = -1;
+            int cs2 = -1;
+            const char *micro_str = "null";
+            const char *cs31_str = "null";
+            const char *cs2_str = "null";
+            const char *stealth_str = "null";
+            char micro_buf[8];
+            char cs31_buf[8];
+            char cs2_buf[8];
+            char status_buf[256];
+
+            board_safe();
+            if (motor_disable() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable");
+            }
+            if (stepper_driver_set_microsteps(16) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps_set");
+            }
+            if (stepper_driver_set_stealthchop(false) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop_set");
+            }
+            if (stepper_driver_clear_faults() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "clearfaults");
+            }
+            uint8_t ifcnt = 0;
+            if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
+            {
+                ifcnt_start = (int)ifcnt;
+            }
+            else
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_start");
+            }
+            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_start");
+            }
+            else
+            {
+                if (json_get_int_field(status_buf, "microsteps", &microsteps))
+                {
+                    snprintf(micro_buf, sizeof(micro_buf), "%d", microsteps);
+                    micro_str = micro_buf;
+                    if (microsteps != 16)
+                    {
+                        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
+                    }
+                }
+                else
+                {
+                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "microsteps");
+                }
+                bool stealth = false;
+                if (json_get_bool_field(status_buf, "stealthchop", &stealth))
+                {
+                    stealth_str = stealth ? "true" : "false";
+                    if (stealth)
+                    {
+                        add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
+                    }
+                }
+                else
+                {
+                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stealthchop");
+                }
+            }
+            if (motor_enable() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_enable");
+            }
+            if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
+            }
+            if (motor_set_speed_hz(800) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
+            }
+            if (stepper_driver_set_current(31, 31, 0) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_31");
+            }
+            if (motor_start() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
+            }
+            vTaskDelay(pdMS_TO_TICKS(200));
+            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_31");
+            }
+            else if (json_get_int_field(status_buf, "cs_actual", &cs31))
+            {
+                snprintf(cs31_buf, sizeof(cs31_buf), "%d", cs31);
+                cs31_str = cs31_buf;
+                if (cs31 != 31)
+                {
+                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
+                }
+            }
+            else
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_31");
+            }
+            if (motor_stop() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_31");
+            }
+            if (stepper_driver_set_current(2, 1, 0) != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "current_2");
+            }
+            if (motor_start() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_2");
+            }
+            vTaskDelay(pdMS_TO_TICKS(200));
+            if (!stepper_driver_get_status_json(status_buf, sizeof(status_buf)))
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "status_2");
+            }
+            else if (json_get_int_field(status_buf, "cs_actual", &cs2))
+            {
+                snprintf(cs2_buf, sizeof(cs2_buf), "%d", cs2);
+                cs2_str = cs2_buf;
+                if (cs2 != 2)
+                {
+                    add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
+                }
+            }
+            else
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "cs_actual_2");
+            }
+            if (motor_stop() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
+            }
+            if (motor_disable() != ESP_OK)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "motor_disable_end");
+            }
+            if (stepper_driver_read_ifcnt(&ifcnt) == ESP_OK)
+            {
+                ifcnt_end = (int)ifcnt;
+            }
+            else
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_end");
+            }
+            if (ifcnt_start >= 0 && ifcnt_end >= 0 && ifcnt_end <= ifcnt_start)
+            {
+                add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "ifcnt_delta");
+            }
+
+            const char *overall = (err_count == 0) ? "PASS" : "FAIL";
+            printf("{\"overall\":\"%s\",\"ifcnt_start\":%d,\"ifcnt_end\":%d,"
+                   "\"cs31\":%s,\"cs2\":%s,\"microsteps\":%s,\"stealthchop\":%s,\"errors\":[",
+                   overall, ifcnt_start, ifcnt_end,
+                   cs31_str, cs2_str, micro_str, stealth_str);
+            for (size_t i = 0; i < err_count; ++i)
+            {
+                if (i > 0)
+                {
+                    printf(",");
+                }
+                print_json_string(errors[i]);
+            }
+            printf("]}\n");
             return 0;
         }
         print_err_json("invalid_args");
