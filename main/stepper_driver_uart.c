@@ -605,7 +605,7 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     if (ok_drv)
     {
         uint8_t stst = (uint8_t)((drv_status >> 31) & 0x01);
-        uint8_t cs_actual = (uint8_t)(drv_status & 0x1F);
+        uint8_t cs_actual = (uint8_t)((drv_status >> 16) & 0x1F);
         snprintf(stst_buf, sizeof(stst_buf), "%u", (unsigned)stst);
         snprintf(cs_buf, sizeof(cs_buf), "%u", (unsigned)cs_actual);
         stst_str = stst_buf;
