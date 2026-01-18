@@ -199,7 +199,7 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     {
         char tx_hex[32];
         format_hex_bytes(req, sizeof(req), tx_hex, sizeof(tx_hex));
-        ESP_LOGI(TAG, "tx len=%u data=%s", (unsigned)sizeof(req), tx_hex);
+        ESP_LOGD(TAG, "tx len=%u data=%s", (unsigned)sizeof(req), tx_hex);
     }
 #endif
 
@@ -216,7 +216,7 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     {
         char rx_hex[48];
         format_hex_bytes(rx, rx_len, rx_hex, sizeof(rx_hex));
-        ESP_LOGI(TAG, "rx len=%d timeout_ticks=%u data=%s", read, (unsigned)timeout_ticks, rx_hex);
+        ESP_LOGD(TAG, "rx len=%d timeout_ticks=%u data=%s", read, (unsigned)timeout_ticks, rx_hex);
     }
 #endif
     size_t total = rx_len;
@@ -238,7 +238,7 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     {
         char total_hex[48];
         format_hex_bytes(rx, total, total_hex, sizeof(total_hex));
-        ESP_LOGI(TAG, "rx total=%u deadline_ms=50 data=%s", (unsigned)total, total_hex);
+        ESP_LOGD(TAG, "rx total=%u deadline_ms=50 data=%s", (unsigned)total, total_hex);
     }
 #endif
     if (total < 8)
@@ -264,7 +264,7 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
         return ESP_ERR_INVALID_RESPONSE;
     }
 #if STEPPER_UART_DEBUG
-    ESP_LOGI(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
+    ESP_LOGD(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
              resp[2], resp[3], resp[4], resp[5], resp[6]);
 #endif
     *out = ((uint32_t)resp[3] << 24) |
@@ -366,8 +366,8 @@ esp_err_t stepper_uart_ensure_gconf_uart_mode(uint8_t slave)
         return err;
     }
 #if STEPPER_UART_DEBUG
-    ESP_LOGI(TAG, "gconf_before=0x%08" PRIX32 " gconf_after=0x%08" PRIX32, gconf, verify);
-    ESP_LOGI(TAG, "gconf bits i_scale_analog=%s pdn_disable=%s mstep_reg_select=%s",
+    ESP_LOGD(TAG, "gconf_before=0x%08" PRIX32 " gconf_after=0x%08" PRIX32, gconf, verify);
+    ESP_LOGD(TAG, "gconf bits i_scale_analog=%s pdn_disable=%s mstep_reg_select=%s",
              (verify & STEPPER_TMC_GCONF_I_SCALE_ANALOG) ? "true" : "false",
              (verify & STEPPER_TMC_GCONF_PDN_DISABLE) ? "true" : "false",
              (verify & STEPPER_TMC_GCONF_MSTEP_REG_SELECT) ? "true" : "false");
@@ -481,7 +481,7 @@ esp_err_t stepper_driver_uart_init(void)
         ESP_LOGE(TAG, "uart_flush_input failed: %s", esp_err_to_name(err));
         return err;
     }
-    ESP_LOGI(TAG, "UART%d init baud=%d tx=%d rx=%d rxbuf=%d",
+    ESP_LOGD(TAG, "UART%d init baud=%d tx=%d rx=%d rxbuf=%d",
              (int)STEPPER_UART,
              STEPPER_UART_BAUD,
              tx_pin,
@@ -600,7 +600,7 @@ esp_err_t stepper_driver_set_current(uint8_t run, uint8_t hold, uint8_t hold_del
                    (((uint32_t)run & 0x1F) << 8) |
                    (((uint32_t)hold_delay & 0x0F) << 16);
 #if STEPPER_UART_DEBUG
-    ESP_LOGI(TAG, "set_current run=%u hold=%u hold_delay=%u val=0x%08X reg=0x10",
+    ESP_LOGD(TAG, "set_current run=%u hold=%u hold_delay=%u val=0x%08X reg=0x10",
              (unsigned)run, (unsigned)hold, (unsigned)hold_delay, (unsigned)val);
 #endif
     esp_err_t err = tmc_write_reg(TMC_REG_IHOLD_IRUN, val);
