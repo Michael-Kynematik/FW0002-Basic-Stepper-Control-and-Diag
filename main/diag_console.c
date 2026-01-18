@@ -365,7 +365,7 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
     }
-    if (motor_set_speed_hz(800) != ESP_OK)
+    if (motor_set_speed_hz(3000) != ESP_OK)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
     }
