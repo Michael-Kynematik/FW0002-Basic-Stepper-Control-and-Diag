@@ -1,4 +1,5 @@
 #include "remote_actions.h"
+// Remote actions are an allowlisted control surface; unlock is a time-limited gate, not authentication.
 
 #include <string.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@ static bool s_neopixel_on = false;
 static int64_t s_unlock_expires_us = 0;
 
 static remote_action_result_t action_safe(const char *args, char *out_json, size_t out_len);
+// Stub: returns OK but does not actually reboot yet.
 static remote_action_result_t action_reboot(const char *args, char *out_json, size_t out_len);
 static remote_action_result_t action_snapshot_now(const char *args, char *out_json, size_t out_len);
 static remote_action_result_t action_neopixel_status(const char *args, char *out_json, size_t out_len);
