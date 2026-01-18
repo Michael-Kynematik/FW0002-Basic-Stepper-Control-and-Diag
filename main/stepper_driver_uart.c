@@ -119,12 +119,66 @@ static esp_err_t tmc_uart_write(const uint8_t *data, size_t len)
     {
         return ESP_ERR_INVALID_STATE;
     }
+    esp_err_t err = uart_flush_input(STEPPER_UART);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "uart_flush_input failed: %s", esp_err_to_name(err));
+        return err;
+    }
     int written = uart_write_bytes(STEPPER_UART, data, len);
     if (written != (int)len)
     {
         return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+static void tmc_uart_drain_rx(TickType_t max_ticks)
+{
+    uint8_t dump[16];
+    TickType_t start = xTaskGetTickCount();
+    while ((xTaskGetTickCount() - start) < max_ticks)
+    {
+        int read = uart_read_bytes(STEPPER_UART, dump, sizeof(dump), 1);
+        if (read <= 0)
+        {
+            break;
+        }
+    }
+}
+
+static bool tmc_find_reply(const uint8_t *rx, size_t total, uint8_t reg, const uint8_t **reply_out)
+{
+    if (rx == NULL || reply_out == NULL || total < 8)
+    {
+        return false;
+    }
+    const uint8_t reg_masked = (uint8_t)(reg & 0x7F);
+    const uint8_t *reply = NULL;
+    for (size_t i = 0; i + 8 <= total; ++i)
+    {
+        const uint8_t *cand = &rx[i];
+        if (cand[0] != TMC_SYNC || cand[1] != 0xFF)
+        {
+            continue;
+        }
+        if ((cand[2] & 0x7F) != reg_masked)
+        {
+            continue;
+        }
+        uint8_t crc = tmc_crc(cand, 7);
+        if (crc != cand[7])
+        {
+            continue;
+        }
+        reply = cand;
+    }
+    if (reply == NULL)
+    {
+        return false;
+    }
+    *reply_out = reply;
+    return true;
 }
 
 static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, bool emit_events)
@@ -186,32 +240,24 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     }
     if (total < 8)
     {
+        if (total > 0)
+        {
+            char rx_hex[48];
+            size_t dump_len = (total > 16) ? 16 : total;
+            format_hex_bytes(rx, dump_len, rx_hex, sizeof(rx_hex));
+            ESP_LOGE(TAG, "reply_invalid rx_len=%u data=%s", (unsigned)total, rx_hex);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
         ESP_LOGE(TAG, "rx_len=%u", (unsigned)total);
         return ESP_ERR_TIMEOUT;
     }
     const uint8_t *resp = NULL;
-    if (total >= 12)
+    if (!tmc_find_reply(rx, total, reg, &resp))
     {
-        resp = &rx[total - 8];
-    }
-    else if (total == 8)
-    {
-        resp = &rx[0];
-    }
-    else
-    {
-        ESP_LOGE(TAG, "rx_len=%u", (unsigned)total);
-        return ESP_ERR_TIMEOUT;
-    }
-    uint8_t crc = tmc_crc(resp, 7);
-    if (crc != resp[7] || resp[0] != TMC_SYNC || resp[1] != 0xFF)
-    {
-        ESP_LOGE(TAG, "reply_invalid");
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    if ((resp[2] & 0x7F) != (reg & 0x7F))
-    {
-        ESP_LOGE(TAG, "reg_mismatch");
+        char rx_hex[48];
+        size_t dump_len = (total > 16) ? 16 : total;
+        format_hex_bytes(rx, dump_len, rx_hex, sizeof(rx_hex));
+        ESP_LOGE(TAG, "reply_invalid rx_len=%u data=%s", (unsigned)total, rx_hex);
         return ESP_ERR_INVALID_RESPONSE;
     }
     ESP_LOGI(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
@@ -258,7 +304,20 @@ static esp_err_t tmc_write_reg(uint8_t reg, uint32_t value)
         (uint8_t)(value & 0xFF),
         0};
     req[7] = tmc_crc(req, 7);
-    return tmc_uart_write(req, sizeof(req));
+    esp_err_t err = tmc_uart_write(req, sizeof(req));
+    if (err != ESP_OK)
+    {
+        return err;
+    }
+    uart_wait_tx_done(STEPPER_UART, pdMS_TO_TICKS(20));
+    err = uart_flush_input(STEPPER_UART);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "uart_flush_input failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    tmc_uart_drain_rx(pdMS_TO_TICKS(5));
+    return ESP_OK;
 }
 
 static bool mres_from_microsteps(uint16_t microsteps, uint8_t *out)
