@@ -381,18 +381,18 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "start_31");
     }
-    for (int i = 0; i < 50; ++i)
+    for (int i = 0; i < 100; ++i)
     {
         if (motor_set_dir(MOTOR_DIR_REV) != ESP_OK)
         {
             add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(5));
         if (motor_set_dir(MOTOR_DIR_FWD) != ESP_OK)
         {
             add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "dir");
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
     if (motor_stop() != ESP_OK)
     {
