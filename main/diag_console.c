@@ -10,6 +10,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 
+#include "json_helpers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
