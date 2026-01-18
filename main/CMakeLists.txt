@@ -32,8 +32,9 @@ configure_file(
 )
 
 idf_component_register(
-    SRCS "stepper_driver_uart.c" "motor.c" "ir_sensor.c" "ir_emitter.c" "neopixel_strip.c" "neopixel.c" "loadcell_scale.c" "loadcell_adc.c" "app_main.c" "diag_console.c" "snapshot.c" "events.c" "remote_actions.c" "board.c"
+    SRCS "stepper_driver_uart.c" "motor.c" "ir_sensor.c" "ir_emitter.c" "neopixel_strip.c" "neopixel.c" "loadcell_scale.c" "loadcell_adc.c" "app_main.c" "diag_console.c" "snapshot.c" "events.c" "remote_actions.c" "board.c" "json_helpers.c"
     INCLUDE_DIRS "include" "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_RMT_SUPPRESS_DEPRECATE_WARN=1)
+
