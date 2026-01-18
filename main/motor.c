@@ -6,6 +6,7 @@
 #include "board.h"
 #include "events.h"
 #include "stepper_driver_uart.h"
+#include "esp_log.h"
 #include "esp_attr.h"
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
@@ -13,6 +14,8 @@
 #define MOTOR_EN_ACTIVE_LEVEL 0
 #define MOTOR_DIR_FWD_LEVEL 0
 #define MOTOR_TIMER_RES_HZ 1000000
+
+static const char *TAG = "motor";
 
 static gptimer_handle_t s_timer = NULL;
 static bool s_timer_running = false;
@@ -156,6 +159,28 @@ esp_err_t motor_init(void)
     s_fault_code = 0;
     snprintf(s_fault_reason, sizeof(s_fault_reason), "none");
     stepper_driver_uart_init();
+    esp_err_t gconf_err = stepper_uart_ensure_gconf_uart_mode(0);
+    if (gconf_err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "gconf init failed: %s", esp_err_to_name(gconf_err));
+    }
+    esp_err_t ping_err = stepper_driver_ping();
+    if (ping_err == ESP_OK)
+    {
+        esp_err_t cur_err = stepper_driver_set_current(8, 2, 8);
+        if (cur_err == ESP_OK)
+        {
+            ESP_LOGI("stepper_uart", "defaults: current run=8 hold=2 hold_delay=8");
+        }
+        else
+        {
+            ESP_LOGW("stepper_uart", "defaults current set failed: %s", esp_err_to_name(cur_err));
+        }
+    }
+    else
+    {
+        ESP_LOGW("stepper_uart", "defaults skipped: ping failed (%s)", esp_err_to_name(ping_err));
+    }
     return ESP_OK;
 }
 

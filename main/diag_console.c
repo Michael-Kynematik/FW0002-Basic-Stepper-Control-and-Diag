@@ -782,7 +782,7 @@ static int cmd_motor(int argc, char **argv)
             print_err_json("invalid_args");
             return 0;
         }
-        char buf[192];
+        char buf[256];
         if (!motor_get_status_json(buf, sizeof(buf)))
         {
             print_err_json("motor");
