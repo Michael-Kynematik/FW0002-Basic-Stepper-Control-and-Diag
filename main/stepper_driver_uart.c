@@ -304,12 +304,6 @@ static esp_err_t tmc_write_reg(uint8_t reg, uint32_t value)
         (uint8_t)(value & 0xFF),
         0};
     req[7] = tmc_crc(req, 7);
-    if (reg == TMC_REG_IHOLD_IRUN)
-    {
-        char tx_hex[32];
-        format_hex_bytes(req, sizeof(req), tx_hex, sizeof(tx_hex));
-        ESP_LOGI(TAG, "ihold_irun_write tx=%s crc=0x%02X", tx_hex, req[7]);
-    }
     esp_err_t err = tmc_uart_write(req, sizeof(req));
     if (err != ESP_OK)
     {
@@ -508,8 +502,10 @@ esp_err_t stepper_driver_set_current(uint8_t run, uint8_t hold, uint8_t hold_del
     uint32_t val = ((uint32_t)hold & 0x1F) |
                    (((uint32_t)run & 0x1F) << 8) |
                    (((uint32_t)hold_delay & 0x0F) << 16);
+#if STEPPER_UART_DEBUG
     ESP_LOGI(TAG, "set_current run=%u hold=%u hold_delay=%u val=0x%08X reg=0x10",
              (unsigned)run, (unsigned)hold, (unsigned)hold_delay, (unsigned)val);
+#endif
     esp_err_t err = tmc_write_reg(TMC_REG_IHOLD_IRUN, val);
     if (err != ESP_OK)
     {
