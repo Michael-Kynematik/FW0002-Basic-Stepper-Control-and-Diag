@@ -9,6 +9,7 @@
 #include "events.h"
 #include "snapshot.h"
 #include "neopixel.h"
+#include "board.h"
 #include "esp_timer.h"
 
 #ifndef REMOTE_ACTIONS_REBOOT_NEEDS_UNLOCK
@@ -26,7 +27,6 @@ typedef struct
     remote_action_handler_t handler;
 } remote_action_def_t;
 
-static bool s_safe_state = true;
 static bool s_neopixel_on = false;
 static int64_t s_unlock_expires_us = 0;
 
@@ -178,7 +178,7 @@ static remote_action_result_t action_safe(const char *args, char *out_json, size
     (void)args;
     (void)out_json;
     (void)out_len;
-    s_safe_state = true;
+    board_safe();
     return REMOTE_ACTION_OK;
 }
 
