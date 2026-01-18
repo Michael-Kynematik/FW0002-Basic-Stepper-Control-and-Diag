@@ -66,7 +66,6 @@ static uint8_t s_hold_current = 0;
 static uint8_t s_hold_delay = 0;
 static bool s_stealthchop = true;
 
-#if STEPPER_UART_DEBUG
 static void format_hex_bytes(const uint8_t *data, size_t len, char *out, size_t out_len)
 {
     if (out == NULL || out_len == 0)
@@ -89,7 +88,6 @@ static void format_hex_bytes(const uint8_t *data, size_t len, char *out, size_t 
         used += (size_t)written;
     }
 }
-#endif
 
 static uint8_t tmc_crc(const uint8_t *data, size_t len)
 {
@@ -111,19 +109,6 @@ static uint8_t tmc_crc(const uint8_t *data, size_t len)
         }
     }
     return crc;
-}
-
-static void tmc_uart_drain_rx(void)
-{
-    uint8_t junk[32];
-    while (true)
-    {
-        int read = uart_read_bytes(STEPPER_UART, junk, sizeof(junk), 0);
-        if (read <= 0)
-        {
-            break;
-        }
-    }
 }
 
 static esp_err_t tmc_uart_write(const uint8_t *data, size_t len)
@@ -282,7 +267,6 @@ static esp_err_t tmc_read_reg_addr(uint8_t addr, uint8_t reg, uint32_t *out, boo
     ESP_LOGI(TAG, "reply_ok reg=0x%02X data=%02X %02X %02X %02X",
              resp[2], resp[3], resp[4], resp[5], resp[6]);
 #endif
-    tmc_uart_drain_rx();
     *out = ((uint32_t)resp[3] << 24) |
            ((uint32_t)resp[4] << 16) |
            ((uint32_t)resp[5] << 8) |
@@ -319,7 +303,7 @@ static esp_err_t tmc_write_reg_addr(uint8_t addr, uint8_t reg, uint32_t value)
     }
     uart_wait_tx_done(STEPPER_UART, pdMS_TO_TICKS(20));
     vTaskDelay(pdMS_TO_TICKS(2));
-    tmc_uart_drain_rx();
+    tmc_uart_drain_rx(pdMS_TO_TICKS(5));
     return ESP_OK;
 }
 
@@ -658,7 +642,6 @@ bool stepper_driver_get_status_json(char *buf, size_t len)
     bool ok_gstat = (tmc_read_reg(TMC_REG_GSTAT, &gstat) == ESP_OK);
     bool ok_drv = (tmc_read_reg(TMC_REG_DRV_STATUS, &drv_status) == ESP_OK);
     bool ok_chop = (tmc_read_reg(STEPPER_TMC_REG_CHOPCONF, &chopconf) == ESP_OK);
-    bool ok_ihold = (tmc_read_reg(TMC_REG_IHOLD_IRUN, &ihold_irun) == ESP_OK);
     bool ok_gconf = (tmc_read_reg(STEPPER_TMC_REG_GCONF, &gconf) == ESP_OK);
 
     char ifcnt_buf[8];
