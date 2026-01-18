@@ -72,6 +72,7 @@ D) Safety / "Safe State" Contract
 - `board_safe()` currently calls `motor_disable()` and sets the safe-state flag. It does not yet drive other GPIOs to safe defaults (marked TODO in code).
 - `motor_disable()` stops step pulses, sets the step pin low, disables the driver enable pin, and sets the motor state to `disabled`.
 - `remote exec safe` invokes the same `board_safe()` behavior as the CLI `safe` command; `snapshot` `board_safe` is the authoritative safe-state indicator.
+- Boot-time acceptancetest is gated by `CONFIG_FW_BOOT_ACCEPTANCETEST_ON_BOOT` (default `n`); when enabled, the boot canary runs once at startup and prints the acceptancetest JSON.
 
 E) Change Rules During Cleanup
 - Do not rename stable commands.

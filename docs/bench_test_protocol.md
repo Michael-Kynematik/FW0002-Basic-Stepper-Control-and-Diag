@@ -9,9 +9,10 @@ B) Setup / Preconditions
 - Connect UART console and open a terminal that can send CLI commands and display single-line JSON responses.
 
 C) Smoke Test (2-3 minutes)
-1) Boot-time canary (acceptancetest)
+1) Boot-time canary (acceptancetest) gating
    - Command: Observe on boot.
-   - PASS: Motor spins ~1s forward then ~1s reverse and a single-line JSON record prints with keys:
+   - PASS: By default, no acceptancetest JSON prints at boot.
+   - If `CONFIG_FW_BOOT_ACCEPTANCETEST_ON_BOOT=y`: Motor spins ~1s forward then ~1s reverse and a single-line JSON record prints with keys:
      `overall`, `ifcnt_start`, `ifcnt_end`, `cs31`, `cs2`, `microsteps`, `stealthchop`, `errors`.
 2) Command list
    - Command: `help`
@@ -51,8 +52,8 @@ D) Full Bench Test (10-15 minutes)
      `stepper_driver_step`, `stepper_driver_dir`, `stepper_driver_en`, `stepper_driver_diag`,
      `stepper_driver_uart_tx`, `stepper_driver_uart_rx`.
 6) Motor driver acceptancetest (manual)
-   - Command: `motor driver acceptancetest`
-   - PASS: Motor spins ~1s forward then ~1s reverse and a single-line JSON record prints with keys:
+    - Command: `motor driver acceptancetest`
+   - PASS: Explicitly runs the acceptancetest (boot is gated) and prints a single-line JSON record with keys:
      `overall`, `ifcnt_start`, `ifcnt_end`, `cs31`, `cs2`, `microsteps`, `stealthchop`, `errors`.
 7) Motor status after test
    - Command: `motor status`

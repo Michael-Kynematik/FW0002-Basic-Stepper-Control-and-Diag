@@ -26,7 +26,9 @@ void app_main(void)
     ir_sensor_init();
     loadcell_scale_init();
     neopixel_set_mode(NEOPIXEL_MODE_BOOTING);
-    // Boot-time motor canary: will move the motor and print acceptancetest JSON even without monitor attached.
+    // Boot-time motor canary: only run when explicitly enabled.
+#if defined(CONFIG_FW_BOOT_ACCEPTANCETEST_ON_BOOT) && CONFIG_FW_BOOT_ACCEPTANCETEST_ON_BOOT
     diag_console_run_startup_acceptancetest();
+#endif
     diag_console_start();
 }
