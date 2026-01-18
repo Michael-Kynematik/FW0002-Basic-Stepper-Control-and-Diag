@@ -263,6 +263,7 @@ static void add_error(const char **errors, size_t *count, size_t max, const char
     }
 }
 
+// Shared by CLI and boot canary; prints one-line JSON for regression checks.
 static void motor_driver_acceptancetest_run_and_print_json(void)
 {
     const char *errors[12];
@@ -365,6 +366,7 @@ static void motor_driver_acceptancetest_run_and_print_json(void)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "stop_2");
     }
+    // Phase B jam-clear: rapid direction bursts at MOTOR_MAX_HZ; raise limit intentionally if needed.
     if (motor_set_speed_hz(5000) != ESP_OK)
     {
         add_error(errors, &err_count, sizeof(errors) / sizeof(errors[0]), "speed");
