@@ -9,8 +9,6 @@
 #define LOADCELL_ADC_READY_TIMEOUT_US 100000
 #define LOADCELL_ADC_SCK_HIGH_US 1
 #define LOADCELL_ADC_SCK_LOW_US 1
-#define LOADCELL_ADC_POWER_DOWN_US 70
-#define LOADCELL_ADC_POWER_UP_US 100
 
 static inline void loadcell_adc_delay_us(uint32_t us)
 {
@@ -128,14 +126,3 @@ esp_err_t loadcell_adc_read_average(int samples, int32_t *avg_out)
     return ESP_OK;
 }
 
-void loadcell_adc_power_down(void)
-{
-    gpio_set_level(PIN_LOADCELL_ADC_SCK, 1);
-    loadcell_adc_delay_us(LOADCELL_ADC_POWER_DOWN_US);
-}
-
-void loadcell_adc_power_up(void)
-{
-    gpio_set_level(PIN_LOADCELL_ADC_SCK, 0);
-    loadcell_adc_delay_us(LOADCELL_ADC_POWER_UP_US);
-}
