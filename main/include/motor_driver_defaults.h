@@ -17,7 +17,7 @@ typedef struct
 #define MOTOR_DRIVER_DEFAULT_HOLD_CURRENT 2
 #define MOTOR_DRIVER_DEFAULT_HOLD_DELAY 8
 #define MOTOR_DRIVER_DEFAULT_MICROSTEPS 16
-#define MOTOR_DRIVER_DEFAULT_STEALTHCHOP true
+#define MOTOR_DRIVER_DEFAULT_STEALTHCHOP false
 
 static inline motor_driver_defaults_t motor_driver_defaults(void)
 {
