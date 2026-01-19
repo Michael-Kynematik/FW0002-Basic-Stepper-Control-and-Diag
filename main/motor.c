@@ -6,6 +6,7 @@
 #include "board.h"
 #include "events.h"
 #include "stepper_driver_uart.h"
+#include "motor_driver_defaults.h"
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "driver/gpio.h"
@@ -167,10 +168,17 @@ esp_err_t motor_init(void)
     esp_err_t ping_err = stepper_driver_ping();
     if (ping_err == ESP_OK)
     {
-        esp_err_t cur_err = stepper_driver_set_current(8, 2, 8);
+        const motor_driver_defaults_t defaults = motor_driver_defaults();
+        esp_err_t cur_err = stepper_driver_set_current(defaults.run_current,
+                                                       defaults.hold_current,
+                                                       defaults.hold_delay);
         if (cur_err == ESP_OK)
         {
-            ESP_LOGI("stepper_uart", "defaults: current run=8 hold=2 hold_delay=8");
+            ESP_LOGI("stepper_uart",
+                     "defaults: current run=%u hold=%u hold_delay=%u",
+                     (unsigned)defaults.run_current,
+                     (unsigned)defaults.hold_current,
+                     (unsigned)defaults.hold_delay);
         }
         else
         {
